@@ -147,6 +147,12 @@ export async function verifyAndSettlePayment(id: number, provider: PaymentGatewa
     const [fresh] = await db.select().from(paymentTransactions).where(eq(paymentTransactions.id, id)).limit(1);
     return fresh?.status === "success" ? { status: "success", giftCardId: fresh.giftCardId ?? undefined } : { status: fresh?.status === "needs_refund" ? "needs_refund" : "processing", giftCardId: fresh?.giftCardId ?? undefined };
   }
+  const authority = claimed.authority;
+  if (!authority) {
+    await db.update(paymentTransactions).set({ status: "failed", updatedAt: new Date() })
+      .where(and(eq(paymentTransactions.id, claimed.id), eq(paymentTransactions.status, "verifying")));
+    return { status: "failed" };
+  }
 
   let refCode: string;
   try {
@@ -155,7 +161,7 @@ export async function verifyAndSettlePayment(id: number, provider: PaymentGatewa
     refCode = await verifyGatewayPayment(provider, settings, {
       paymentId: claimed.id,
       amountToman: claimed.amount,
-      authority: claimed.authority,
+      authority,
       callback: callback ?? claimed.callbackData,
     });
   } catch (error) {
@@ -164,7 +170,7 @@ export async function verifyAndSettlePayment(id: number, provider: PaymentGatewa
     throw error;
   }
 
-  const safeRefCode = refCode.replace(/[\u0000-\u001f\u007f]/g, "").slice(0, 120) || claimed.authority;
+  const safeRefCode = refCode.replace(/[\u0000-\u001f\u007f]/g, "").slice(0, 120) || authority;
   const giftSettings = claimed.giftCardId ? await getSettingsFresh() : null;
   const outcome = await db.transaction(async (tx) => {
     const [freshPayment] = await tx.select().from(paymentTransactions).where(eq(paymentTransactions.id, claimed.id)).for("update");
