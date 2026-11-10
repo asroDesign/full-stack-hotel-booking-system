@@ -6,7 +6,7 @@
  * records — production deployments can safely keep it off.
  */
 export function isDemoMode(): boolean {
-  const raw = (process.env.DEMO_MODE ?? "true").trim().toLowerCase();
+  const raw = (process.env.DEMO_MODE ?? "false").trim().toLowerCase();
   return !["false", "0", "off", "no", "production", "live"].includes(raw);
 }
 
@@ -25,6 +25,6 @@ export function demoAdminCredentials(): { email: string; password: string; name:
 export function productionAdminCredentials(): { email: string; password: string; name: string } | null {
   const email = (process.env.ADMIN_EMAIL ?? "").trim().toLowerCase();
   const password = process.env.ADMIN_PASSWORD ?? "";
-  if (!email || password.length < 8) return null;
+  if (!email || password.length < 8 || password.length > 1024) return null;
   return { email, password, name: process.env.ADMIN_NAME ?? "مدیر هتل" };
 }

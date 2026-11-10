@@ -27,6 +27,9 @@ export async function POST(request: Request) {
     if (!email || !password) {
       return NextResponse.json({ error: "ایمیل و رمز عبور را وارد کنید." }, { status: 400 });
     }
+    if (password.length > 1024) {
+      return NextResponse.json({ error: "ایمیل یا رمز عبور نادرست است." }, { status: 401 });
+    }
 
     const rows = await db.select().from(admins).where(eq(admins.email, email)).limit(1);
     const admin = rows[0];

@@ -15,8 +15,8 @@ export default function TrackForm({ initialValue = "" }: { initialValue?: string
         event.preventDefault();
         setError(null);
         const value = code.trim().toUpperCase();
-        if (value.length < 5) {
-          setError("کد پیگیری یا کد رزرو را کامل وارد کنید.");
+        if (value.length < 10) {
+          setError("کد پیگیری رزرو را کامل وارد کنید.");
           return;
         }
         setLoading(true);
@@ -36,7 +36,7 @@ export default function TrackForm({ initialValue = "" }: { initialValue?: string
       className="space-y-3"
     >
       <label className="field">
-        <span className="label">کد پیگیری یا کد رزرو</span>
+        <span className="label">کد پیگیری رزرو</span>
         <input
           className="input text-center font-mono tracking-widest"
           dir="ltr"

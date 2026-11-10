@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
-import { and, eq, gt, inArray, lt, ne, sql } from "drizzle-orm";
+import { and, eq, gt, inArray, lt, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { bookings } from "@/db/schema";
 import { getPoolSlots, getRoomById, getRooms, getSettings } from "@/lib/data";
 import { nightsBetween, todayISO } from "@/lib/format";
+import { clientIp, rateLimit, tooManyRequests } from "@/lib/rate-limit";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -16,10 +17,12 @@ function normalizeDate(value: string | null, fallback: string): string {
 
 /**
  * GET /api/availability
- * Query params: roomId?, checkIn?, checkOut?, date?, slotId?, excludeBookingId?
+ * Query params: roomId?, checkIn?, checkOut?, date?, slotId?
  * Returns availability for a single room, all rooms, or pool time slots.
  */
 export async function GET(request: Request) {
+  const limited = rateLimit(`availability:${clientIp(request)}`, 120, 60 * 1000);
+  if (!limited.ok) return tooManyRequests(limited.retryAfter);
   try {
     const { searchParams } = new URL(request.url);
     const checkIn = normalizeDate(searchParams.get("checkIn") ?? searchParams.get("from"), todayISO());
@@ -30,8 +33,10 @@ export async function GET(request: Request) {
     const roomIdParam = searchParams.get("roomId");
     const dateParam = normalizeDate(searchParams.get("date") ?? searchParams.get("checkIn"), todayISO());
     const slotIdParam = searchParams.get("slotId");
-    const excludeBookingId = Number(searchParams.get("excludeBookingId")) || undefined;
     const nights = nightsBetween(checkIn, checkOut);
+    if (!Number.isFinite(nights) || nights < 0 || nights > 365) {
+      return NextResponse.json({ error: "بازه اقامت معتبر نیست." }, { status: 400 });
+    }
 
     if (roomIdParam) {
       const roomId = Number(roomIdParam);
@@ -50,7 +55,6 @@ export async function GET(request: Request) {
         lt(bookings.checkIn, checkOut),
         gt(bookings.checkOut, checkIn),
       ];
-      if (excludeBookingId) conditions.push(ne(bookings.id, excludeBookingId));
       const conflicts = await db
         .select({ id: bookings.id })
         .from(bookings)

@@ -43,10 +43,9 @@ export async function createSession(adminId: number): Promise<string> {
   store.set(SESSION_COOKIE, token, {
     httpOnly: true,
     sameSite: "lax",
-    // Only flag as secure when the deployment is actually HTTPS. Behind an
-    // HTTP reverse proxy a `secure` cookie is silently dropped by the browser,
-    // which was causing the "logged out after refresh" bug.
-    secure: process.env.SESSION_COOKIE_SECURE === "true",
+    // Secure cookies are the production default. Set SESSION_COOKIE_SECURE=false
+    // only for a deliberately HTTP-only deployment; the browser sees the public URL.
+    secure: process.env.SESSION_COOKIE_SECURE === "true" || (process.env.NODE_ENV === "production" && process.env.SESSION_COOKIE_SECURE !== "false"),
     path: "/",
     maxAge: SESSION_DAYS * 24 * 60 * 60,
   });
@@ -104,10 +103,7 @@ export function generateRoomBookingCode(): string {
 }
 
 export function generateTrackingCode(): string {
-  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-  let code = "";
-  for (let i = 0; i < 6; i += 1) {
-    code += alphabet[randomInt(0, alphabet.length)];
-  }
-  return `TRK-${code}`;
+  // This code is a bearer secret for looking up, paying, and cancelling a
+  // booking. Use 128 random bits; the short reservation code is not an auth token.
+  return `TRK-${randomBytes(16).toString("hex").toUpperCase()}`;
 }

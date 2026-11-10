@@ -21,7 +21,7 @@ export default async function TrackPage() {
       <PageHero
         kicker="پیگیری رزرو"
         title="وضعیت رزرو و کد رزرو شما"
-        description="با کد پیگیری (TRK-…) یا کد رزرو (ATL-…) وضعیت پرداخت و تأیید درخواست خود را ببینید."
+        description="با کد پیگیری محرمانه‌ای که پس از ثبت رزرو دریافت می‌کنید، وضعیت پرداخت و تأیید درخواست را ببینید."
         image={settings.aboutImage}
       />
       <section className="container-x py-12">

@@ -233,17 +233,16 @@ export async function getBookings(options?: {
 }
 
 export async function getBookingByTracking(trackingCode: string): Promise<BookingWithRoom | null> {
+  const normalizedCode = trackingCode.trim().toUpperCase();
+  // Reservation codes are intentionally excluded: they are shown at check-in
+  // and must not grant access to a guest's booking or its actions.
+  if (!/^TRK-[A-Z0-9]{6,32}$/.test(normalizedCode)) return null;
   await ensureSeeded();
   const rows = await db
     .select({ booking: bookings, roomName: rooms.name, roomNumber: rooms.roomNumber })
     .from(bookings)
     .leftJoin(rooms, eq(bookings.roomId, rooms.id))
-    .where(
-      or(
-        sql`upper(${bookings.trackingCode}) = ${trackingCode.toUpperCase()}`,
-        sql`upper(coalesce(${bookings.reservationCode}, '')) = ${trackingCode.toUpperCase()}`,
-      ),
-    )
+    .where(sql`upper(${bookings.trackingCode}) = ${normalizedCode}`)
     .limit(1);
   if (!rows[0]) return null;
   return { ...rows[0].booking, roomName: rows[0].roomName, roomNumber: rows[0].roomNumber };

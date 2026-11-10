@@ -96,8 +96,11 @@ export async function createBooking(
     if (!room || !room.active) return { ok: false, error: "اتاق انتخاب‌شده در دسترس نیست." };
     if (!/^\d{4}-\d{2}-\d{2}$/.test(checkOut)) return { ok: false, error: "تاریخ خروج معتبر نیست." };
 
+    const nights = nightsBetween(checkIn, checkOut);
+    if (!Number.isFinite(nights) || nights < 1 || nights > 365) {
+      return { ok: false, error: "بازه اقامت باید بین ۱ تا ۳۶۵ شب باشد." };
+    }
     const rates = await getRoomRates(room, checkIn, checkOut);
-    if (rates.nights < 1) return { ok: false, error: "تاریخ خروج باید بعد از تاریخ ورود باشد." };
 
     const standardCapacity = room.capacity;
     const maxCapacity = Math.max(room.maxCapacity ?? standardCapacity + 2, standardCapacity);

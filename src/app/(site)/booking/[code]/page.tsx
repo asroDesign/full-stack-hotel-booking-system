@@ -1,11 +1,14 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { headers } from "next/headers";
 import BookingPayment from "@/components/booking/BookingPayment";
 import { BookingStatusBadge } from "@/components/StatusBadge";
 import { SERVICE_TYPE } from "@/lib/constants";
 import { getBookingByTracking, getSettings } from "@/lib/data";
 import { formatJalali, formatMoney, formatDateTime, toFa } from "@/lib/format";
+import { isDemoMode } from "@/lib/runtime-mode";
+import { clientIpFromHeaders, rateLimit } from "@/lib/rate-limit";
 
 export const dynamic = "force-dynamic";
 
@@ -15,9 +18,12 @@ export const metadata: Metadata = {
 };
 
 export default async function BookingStatusPage({ params }: { params: Promise<{ code: string }> }) {
+  const requestHeaders = await headers();
+  const limited = rateLimit(`booking-page:${clientIpFromHeaders(requestHeaders)}`, 30, 10 * 60 * 1000);
+  if (!limited.ok) notFound();
   const { code } = await params;
   const [booking, settings] = await Promise.all([
-    getBookingByTracking(decodeURIComponent(code)),
+    getBookingByTracking(code),
     getSettings(),
   ]);
   if (!booking) notFound();
@@ -197,6 +203,7 @@ export default async function BookingStatusPage({ params }: { params: Promise<{ 
               status={booking.status}
               prepaymentAmount={booking.prepaymentAmount}
               cardNumber={settings.cardNumber}
+              demoMode={isDemoMode()}
             />
           </div>
 

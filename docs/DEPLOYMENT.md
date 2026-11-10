@@ -16,11 +16,15 @@ pg_dump "$DATABASE_URL" > backup-$(date +%F-%H%M).sql
 # ۱. کد جدید
 git pull            # یا انتقال فایل‌ها
 # ۲. وابستگی‌ها
-npm ci --include=dev    # Tailwind/PostCSS در devDependencies هستند و برای build لازم‌اند
+rm -rf node_modules .next
+npm install --include=dev --include=optional    # وابستگی‌های build و باینری‌های native مثل sharp
 # ۳. مایگریشن (غیرمخرب)
 node scripts/db-migrate.mjs
 # ۳.۱. ایندکس‌های کارایی (idempotent و بدون تغییر داده)
 node scripts/apply-indexes.mjs
+# sharp باید روی همان سیستم‌عامل/معماری مقصد نصب شود؛ node_modules مک را به لینوکس کپی نکنید.
+# ریپو فعلی lockfile ندارد؛ برای buildهای تکرارپذیر package-lock.json را تولید و همراه کد نگه دارید.
+# محدودیت بدنه آپلود را در reverse proxy روی حدود ۶۱ MiB تنظیم کنید؛ formData پیش از بررسی اندازه فایل parse می‌شود.
 # ۴. build و اجرا
 npm run build
 npm run start
@@ -66,7 +70,7 @@ node scripts/set-admin-password.mjs --email owner@example.com --password 'NewStr
 ### به‌روزرسانی امن پس از هر تغییر کد
 ```bash
 pg_dump "$DATABASE_URL" > backup-before-deploy.sql
-npm ci --include=dev
+npm install --include=dev --include=optional
 node scripts/db-migrate.mjs
 node scripts/apply-indexes.mjs
 npm run build && npm run start
@@ -99,9 +103,12 @@ node scripts/purge-demo.mjs --yes
 | `SMSIR_API_KEY` + `SMSIR_TEMPLATE_*` | پترن‌های sms.ir |
 
 ## ۶) نکات سخت‌سازی تولید
-- روی HTTPS مقدار `SESSION_COOKIE_SECURE=true` بگذارید (کوکی سشن ۳۰ روزه با تمدید لغزان).
+- پیش‌فرض کد `DEMO_MODE=false` است؛ برای محتوای نمونه، فقط آگاهانه آن را `true` کنید.
+- در تولید کوکی سشن به‌صورت پیش‌فرض `Secure` است؛ فقط پشت HTTPS اجرا کنید.
+- در این نسخه درگاه واقعی بانکی پیاده‌سازی نشده است؛ شبیه‌ساز پرداخت فقط در حالت دمو فعال است. رسید کارت‌به‌کارت باید توسط پذیرش از پنل تأیید شود.
 - کلیدهای SMS فقط سمت سرور نگه داشته می‌شوند؛ در پنل `/admin/sms` وضعیت تنظیمات و لاگ‌ها را ببینید.
-- `DEMO_MODE=false` را در سرور تولید فراموش نکنید؛ بنر هشدار آن در داشبورد نمایش داده می‌شود.
+- برای محیط واقعی `DEMO_MODE=false` را صریح تنظیم کنید؛ بنر هشدار حالت دمو در داشبورد نمایش داده می‌شود.
+- محدودکننده درخواست داخل برنامه حافظه‌ای و تک‌پردازه‌ای است؛ برای چند replica/serverless، محدودسازی توزیع‌شده در proxy یا Redis لازم است. proxy باید `CF-Connecting-IP` / `X-Real-IP` را بازنویسی کند، `X-Forwarded-For` ورودی کاربر را نپذیرد و دسترسی مستقیم به origin را ببندد.
 - بکاپ روزانه + نگه‌داشتن `migrations/` در ریپو الزامی است.
 
 ## ۷) یک اسکریپت، چند هتل (۳ / ۴ / ۵ ستاره)

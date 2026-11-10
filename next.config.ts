@@ -1,5 +1,9 @@
 import type { NextConfig } from "next";
 
+const SCRIPT_SRC = process.env.NODE_ENV === "development"
+  ? "'self' 'unsafe-inline' 'unsafe-eval'"
+  : "'self' 'unsafe-inline'";
+
 const SECURITY_HEADERS = [
   { key: "X-Content-Type-Options", value: "nosniff" },
   { key: "X-Frame-Options", value: "SAMEORIGIN" },
@@ -14,7 +18,8 @@ const SECURITY_HEADERS = [
       "media-src 'self' blob: https:",
       "font-src 'self' data:",
       "style-src 'self' 'unsafe-inline'",
-      "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+      `script-src ${SCRIPT_SRC}`,
+      "object-src 'none'",
       "connect-src 'self' https:",
       "frame-src 'self' https://www.openstreetmap.org https://www.google.com",
       "frame-ancestors 'self'",

@@ -4,6 +4,7 @@ export const runtime = "nodejs";
 import { NextResponse } from "next/server";
 import { getRoomById, getSettings } from "@/lib/data";
 import { getRoomRates } from "@/lib/pricing";
+import { nightsBetween } from "@/lib/format";
 import { clientIp, rateLimit, tooManyRequests } from "@/lib/rate-limit";
 
 export async function GET(request: Request) {
@@ -16,6 +17,10 @@ export async function GET(request: Request) {
     const checkOut = (searchParams.get("checkOut") ?? "").slice(0, 10);
     if (!Number.isFinite(roomId) || !/^\d{4}-\d{2}-\d{2}$/.test(checkIn) || !/^\d{4}-\d{2}-\d{2}$/.test(checkOut)) {
       return NextResponse.json({ error: "پارامترها معتبر نیستند." }, { status: 400 });
+    }
+    const nights = nightsBetween(checkIn, checkOut);
+    if (!Number.isFinite(nights) || nights < 1 || nights > 365) {
+      return NextResponse.json({ error: "بازه اقامت باید بین ۱ تا ۳۶۵ شب باشد." }, { status: 400 });
     }
     const [room, settings] = await Promise.all([getRoomById(roomId), getSettings()]);
     if (!room) return NextResponse.json({ error: "اتاق یافت نشد." }, { status: 404 });

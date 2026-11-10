@@ -2,3 +2,4 @@ node_modules
 .next
 .env
 drizzle.config.json
+/public/uploads/

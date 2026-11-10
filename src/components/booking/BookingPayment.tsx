@@ -9,11 +9,13 @@ export default function BookingPayment({
   status,
   prepaymentAmount,
   cardNumber,
+  demoMode,
 }: {
   trackingCode: string;
   status: string;
   prepaymentAmount: number;
   cardNumber: string;
+  demoMode: boolean;
 }) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
@@ -84,12 +86,20 @@ export default function BookingPayment({
               </button>
             </div>
           </div>
-          <button type="button" onClick={pay} disabled={loading} className="btn btn-gold w-full">
-            {loading ? "در حال پردازش پرداخت…" : `پرداخت پیش‌پرداخت ${formatMoney(prepaymentAmount)}`}
-          </button>
-          <p className="text-center text-[10px] text-forest-800/50">
-            درگاه پرداخت آزمایشی است؛ پس از پرداخت، درخواست برای تأیید پذیرش ارسال می‌شود.
-          </p>
+          {demoMode ? (
+            <>
+              <button type="button" onClick={pay} disabled={loading} className="btn btn-gold w-full">
+                {loading ? "در حال پردازش پرداخت…" : `پرداخت آزمایشی ${formatMoney(prepaymentAmount)}`}
+              </button>
+              <p className="text-center text-[10px] text-forest-800/50">
+                این پرداخت فقط برای محیط دمو است و تراکنش بانکی واقعی انجام نمی‌دهد.
+              </p>
+            </>
+          ) : (
+            <p className="rounded-xl bg-amber-50 p-3 text-[10px] leading-6 text-amber-800">
+              پس از کارت‌به‌کارت، رسید را برای پذیرش ارسال کنید تا پرداخت از پنل بررسی و ثبت شود.
+            </p>
+          )}
         </>
       ) : null}
 

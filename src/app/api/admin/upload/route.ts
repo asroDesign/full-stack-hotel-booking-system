@@ -8,9 +8,10 @@ import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import path from "node:path";
 import { NextResponse } from "next/server";
-import sharp, { type Sharp } from "sharp";
+import type { Sharp } from "sharp";
 import { getCurrentAdmin } from "@/lib/auth";
 import { isSameOrigin } from "@/lib/security";
+import { rateLimit, tooManyRequests } from "@/lib/rate-limit";
 
 /**
  * Image pipeline
@@ -23,9 +24,6 @@ import { isSameOrigin } from "@/lib/security";
  *    decoding (see components/site/SmartImage.tsx)
  * 4. videos are streamed to disk untouched (mp4/webm/mov)
  */
-sharp.cache(false);
-sharp.concurrency(1);
-
 const IMAGE_TYPES = new Set([
   "image/jpeg",
   "image/jpg",
@@ -57,13 +55,22 @@ function extensionOf(name: string): string {
   return name.split(".").pop()?.toLowerCase() ?? "";
 }
 
-let tempCleanup: string | null = null;
-const createdCleanup: string[] = [];
-
 export async function POST(request: Request) {
   if (!isSameOrigin(request)) return NextResponse.json({ error: "درخواست غیرمجاز." }, { status: 403 });
   const admin = await getCurrentAdmin();
   if (!admin) return NextResponse.json({ error: "دسترسی غیرمجاز" }, { status: 401 });
+
+  const limited = rateLimit(`admin-upload:${admin.id}`, 40, 10 * 60 * 1000);
+  if (!limited.ok) return tooManyRequests(limited.retryAfter, "تعداد آپلودها زیاد است. کمی بعد دوباره تلاش کنید.");
+  const contentLength = Number(request.headers.get("content-length"));
+  if (Number.isFinite(contentLength) && contentLength > MAX_VIDEO_SIZE + 1024 * 1024) {
+    return NextResponse.json({ error: "حجم درخواست از حد مجاز بیشتر است." }, { status: 413 });
+  }
+
+  // Keep cleanup state local to this request; shared module state lets parallel
+  // uploads delete each other's temporary or completed files.
+  let tempCleanup: string | null = null;
+  const createdCleanup: string[] = [];
 
   try {
     const form = await request.formData();
@@ -84,6 +91,11 @@ export async function POST(request: Request) {
       if (file.size > MAX_VIDEO_SIZE) {
         return NextResponse.json({ error: "حجم ویدیو باید کمتر از ۶۰ مگابایت باشد." }, { status: 413 });
       }
+      const signature = Buffer.from(await file.slice(0, 12).arrayBuffer());
+      const validVideo = file.type === "video/webm"
+        ? signature.length >= 4 && signature.subarray(0, 4).equals(Buffer.from([0x1a, 0x45, 0xdf, 0xa3]))
+        : signature.length >= 8 && signature.toString("ascii", 4, 8) === "ftyp";
+      if (!validVideo) return NextResponse.json({ error: "محتوای فایل با قالب ویدیویی اعلام‌شده سازگار نیست." }, { status: 415 });
       const fileName = `${Date.now()}-${randomBytes(4).toString("hex")}.${VIDEO_EXTENSIONS[file.type]}`;
       const destination = path.join(uploadDir, fileName);
       await pipeline(Readable.fromWeb(file.stream() as never), createWriteStream(destination));
@@ -111,6 +123,11 @@ export async function POST(request: Request) {
     }
 
     /* ------------------------------- images ------------------------------- */
+    const sharpModule = await import("sharp");
+    const sharp = sharpModule.default;
+    sharp.cache(false);
+    sharp.concurrency(1);
+
     const token = `${Date.now()}-${randomBytes(4).toString("hex")}`;
     const base = `${safeBaseName(file.name)}-${token}`;
     const tempPath = path.join(uploadDir, `tmp-${token}.${ext || "bin"}`);
@@ -135,7 +152,7 @@ export async function POST(request: Request) {
             : (heicModule as unknown as (options: { buffer: Buffer; format: "JPEG"; quality?: number }) => Promise<Buffer | ArrayBuffer>);
         const jpeg = await heicConvert({ buffer: await readFile(tempPath), format: "JPEG", quality: 0.92 });
         const jpegBuffer = Buffer.isBuffer(jpeg) ? jpeg : Buffer.from(new Uint8Array(jpeg));
-        pipelineInput = sharp(jpegBuffer, { limitInputPixels: 100_000_000 });
+        pipelineInput = sharp(jpegBuffer, { limitInputPixels: 40_000_000 });
         await pipelineInput.metadata();
       } catch (error) {
         console.error("[upload] HEIC conversion failed", error);
@@ -147,7 +164,7 @@ export async function POST(request: Request) {
     } else {
       pipelineInput = sharp(tempPath, {
         animated: file.type === "image/gif",
-        limitInputPixels: 100_000_000,
+        limitInputPixels: 40_000_000,
       });
     }
 

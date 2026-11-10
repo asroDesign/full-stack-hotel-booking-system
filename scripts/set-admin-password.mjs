@@ -17,7 +17,7 @@ const email = (getArg("email") ?? "").trim().toLowerCase();
 const password = getArg("password") ?? "";
 const name = getArg("name") ?? "مدیر هتل";
 
-if (!email || password.length < 8) {
+if (!email || password.length < 8 || password.length > 1024) {
   console.error("Usage: node scripts/set-admin-password.mjs --email <email> --password <min 8 chars> [--name <display name>]");
   process.exit(1);
 }
@@ -37,7 +37,9 @@ try {
      returning id, email`,
     [name, email, hash],
   );
-  console.log(`[admin] password updated for ${result.rows[0].email} (id: ${result.rows[0].id})`);
+  const adminId = result.rows[0].id;
+  await pool.query("delete from sessions where admin_id = $1", [adminId]);
+  console.log(`[admin] password updated for ${result.rows[0].email}; active sessions revoked`);
 } catch (error) {
   console.error("[admin] failed:", error.message);
   process.exitCode = 1;

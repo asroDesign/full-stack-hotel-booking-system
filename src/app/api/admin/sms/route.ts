@@ -7,6 +7,8 @@ import { db } from "@/db";
 import { smsLogs } from "@/db/schema";
 import { getCurrentAdmin } from "@/lib/auth";
 import { sendPatternSms, smsConfigured, smsProvider } from "@/lib/sms";
+import { isSameOrigin } from "@/lib/security";
+import { rateLimit, tooManyRequests } from "@/lib/rate-limit";
 
 export async function GET() {
   const admin = await getCurrentAdmin();
@@ -22,6 +24,9 @@ export async function GET() {
 export async function POST(request: Request) {
   const admin = await getCurrentAdmin();
   if (!admin) return NextResponse.json({ error: "دسترسی غیرمجاز" }, { status: 401 });
+  if (!isSameOrigin(request)) return NextResponse.json({ error: "درخواست غیرمجاز." }, { status: 403 });
+  const limited = rateLimit(`admin-sms:${admin.id}`, 5, 10 * 60 * 1000);
+  if (!limited.ok) return tooManyRequests(limited.retryAfter);
   try {
     const body = await request.json();
     const receptor = String(body.receptor ?? "");

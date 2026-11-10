@@ -45,11 +45,19 @@ export function resetRateLimit(key: string) {
   buckets.delete(key);
 }
 
-export function clientIp(request: Request): string {
-  const headers = request.headers;
+export function clientIpFromHeaders(headers: Pick<Headers, "get">): string {
+  // Trust only headers that the ingress proxy overwrites. The first XFF value
+  // is client-controlled on many stacks; use the rightmost forwarded address.
+  const trusted = headers.get("cf-connecting-ip") ?? headers.get("x-real-ip");
+  if (trusted?.trim()) return trusted.trim();
   const forwarded = headers.get("x-forwarded-for");
-  if (forwarded) return forwarded.split(",")[0]!.trim();
-  return headers.get("x-real-ip") ?? headers.get("cf-connecting-ip") ?? "local";
+  if (!forwarded) return "local";
+  const addresses = forwarded.split(",");
+  return addresses[addresses.length - 1]?.trim() || "local";
+}
+
+export function clientIp(request: Request): string {
+  return clientIpFromHeaders(request.headers);
 }
 
 export function tooManyRequests(retryAfter: number, message = "درخواست‌های بیش از حد؛ کمی بعد دوباره تلاش کنید.") {

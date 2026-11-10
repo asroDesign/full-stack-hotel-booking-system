@@ -160,7 +160,7 @@ export default async function BookingPage({ searchParams }: { searchParams: Sear
             <p className="kicker">پیگیری رزرو</p>
             <h2 className="text-lg font-extrabold text-forest-950">کد رزرو یا کد پیگیری خود را دارید؟</h2>
             <p className="text-xs leading-7 text-forest-800/60">
-              با وارد کردن کد پیگیری (TRK-…) یا کد رزرو (ATL-…) وضعیت پرداخت پیش‌پرداخت و تأیید پذیرش را ببینید. کد رزرو
+              با کد پیگیری محرمانه‌ای که پس از ثبت رزرو دریافت می‌کنید، وضعیت پرداخت و تأیید پذیرش را ببینید. کد رزرو
               تنها پس از تأیید پذیرش صادر می‌شود.
             </p>
             <Link href="/track" className="btn btn-ghost btn-sm w-fit">
