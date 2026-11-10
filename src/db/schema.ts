@@ -1,542 +1,669 @@
 import {
-  boolean,
-  date,
-  index,
-  integer,
-  jsonb,
   pgTable,
   serial,
   text,
+  integer,
+  boolean,
   timestamp,
-  uniqueIndex,
+  jsonb,
+  doublePrecision,
+  date,
+  customType,
+  bigint,
+  primaryKey,
+  index,
 } from "drizzle-orm/pg-core";
 
-export type RoomAddon = { name: string; price: number; description?: string };
-export type BookingAddon = { name: string; price: number };
-export type AccountType = "asset" | "liability" | "equity" | "revenue" | "expense";
-export type AccountLevel = "general" | "subsidiary" | "detail";
+export type RoomOption = {
+  id: string;
+  title: string;
+  price: number;
+  unit: "per_night" | "per_person_night" | "per_stay" | "per_person";
+  included: boolean;
+};
 
-/* ---------------------------------- auth --------------------------------- */
+export type SelectedOption = { id: string; title: string; unit: RoomOption["unit"]; price: number; amount: number };
+
+const bytea = customType<{ data: Buffer; driverData: Buffer }>({
+  dataType() {
+    return "bytea";
+  },
+});
 
 export const admins = pgTable("admins", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
   email: text("email").notNull().unique(),
   passwordHash: text("password_hash").notNull(),
-  role: text("role").notNull().default("admin"),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
 export const sessions = pgTable("sessions", {
-  token: text("token").primaryKey(),
+  id: text("id").primaryKey(),
   adminId: integer("admin_id")
     .notNull()
     .references(() => admins.id, { onDelete: "cascade" }),
-  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  expiresAt: timestamp("expires_at").notNull(),
 });
-
-/* ---------------------------------- rooms -------------------------------- */
 
 export const rooms = pgTable("rooms", {
   id: serial("id").primaryKey(),
-  slug: text("slug").notNull().unique(),
   name: text("name").notNull(),
-  roomNumber: text("room_number").notNull(),
-  roomType: text("room_type").notNull(),
+  slug: text("slug").notNull().unique(),
+  roomNumber: text("room_number").notNull().default(""),
+  type: text("type").notNull().default("دبل"),
   floor: integer("floor").notNull().default(1),
   capacity: integer("capacity").notNull().default(2),
-  maxCapacity: integer("max_capacity").notNull().default(4),
-  extraGuestFee: integer("extra_guest_fee").notNull().default(0),
-  addons: jsonb("addons").$type<RoomAddon[]>().notNull().default([]),
-  size: integer("size").notNull().default(28),
-  bedType: text("bed_type").notNull().default("تخت دو نفره"),
-  view: text("view").notNull().default("منظره جنگل"),
-  description: text("description").notNull(),
-  longDescription: text("long_description").notNull().default(""),
-  pricePerNight: integer("price_per_night").notNull(),
-  prepaymentPercent: integer("prepayment_percent").notNull().default(30),
-  coverImage: text("cover_image").notNull(),
-  gallery: jsonb("gallery").$type<string[]>().notNull().default([]),
-  amenities: jsonb("amenities").$type<string[]>().notNull().default([]),
-  videoUrl: text("video_url"),
-  featured: boolean("featured").notNull().default(false),
-  active: boolean("active").notNull().default(true),
-  sortOrder: integer("sort_order").notNull().default(0),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-});
-
-/* ------------------------------- facilities ------------------------------ */
-
-export const facilities = pgTable("facilities", {
-  id: serial("id").primaryKey(),
-  slug: text("slug").notNull().unique(),
-  title: text("title").notNull(),
-  subtitle: text("subtitle").notNull().default(""),
-  description: text("description").notNull(),
-  icon: text("icon").notNull().default("✨"),
-  imageUrl: text("image_url").notNull(),
-  category: text("category").notNull().default("رفاهی"),
+  extraBeds: integer("extra_beds").notNull().default(0),
+  beds: text("beds").notNull().default(""),
+  size: integer("size").notNull().default(25),
+  view: text("view").notNull().default(""),
+  pricePerNight: integer("price_per_night").notNull().default(0),
+  holidayPrice: integer("holiday_price").notNull().default(0),
+  peakPrice: integer("peak_price").notNull().default(0),
+  extraGuestPrice: integer("extra_guest_price").notNull().default(0),
+  options: jsonb("options").$type<RoomOption[]>().notNull().default([]),
+  shortDescription: text("short_description").notNull().default(""),
+  description: text("description").notNull().default(""),
   features: jsonb("features").$type<string[]>().notNull().default([]),
-  highlight: boolean("highlight").notNull().default(false),
-  active: boolean("active").notNull().default(true),
+  images: jsonb("images").$type<string[]>().notNull().default([]),
+  videoUrl: text("video_url").notNull().default(""),
+  isActive: boolean("is_active").notNull().default(true),
+  isFeatured: boolean("is_featured").notNull().default(false),
+  housekeeping: text("housekeeping").$type<"clean" | "dirty" | "inspected" | "out_of_order">().notNull().default("clean"),
   sortOrder: integer("sort_order").notNull().default(0),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
-/* ------------------------------- attractions ----------------------------- */
+export const services = pgTable("services", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  slug: text("slug").notNull().unique(),
+  icon: text("icon").notNull().default("Sparkles"),
+  shortDescription: text("short_description").notNull().default(""),
+  description: text("description").notNull().default(""),
+  image: text("image").notNull().default(""),
+  gallery: jsonb("gallery").$type<string[]>().notNull().default([]),
+  videoUrl: text("video_url").notNull().default(""),
+  price: integer("price").notNull().default(0),
+  priceUnit: text("price_unit").notNull().default("هر سانس"),
+  workingHours: text("working_hours").notNull().default(""),
+  rules: jsonb("rules").$type<string[]>().notNull().default([]),
+  timeSlots: jsonb("time_slots").$type<string[]>().notNull().default([]),
+  slotPrices: jsonb("slot_prices").$type<Record<string, number>>().notNull().default({}),
+  includedGuests: integer("included_guests").notNull().default(4),
+  extraGuestPrice: integer("extra_guest_price").notNull().default(0),
+  maxGuests: integer("max_guests").notNull().default(6),
+  isBookable: boolean("is_bookable").notNull().default(false),
+  isActive: boolean("is_active").notNull().default(true),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const amenities = pgTable("amenities", {
+  id: serial("id").primaryKey(),
+  title: text("title").notNull(),
+  icon: text("icon").notNull().default("Sparkles"),
+  description: text("description").notNull().default(""),
+  category: text("category").notNull().default("عمومی"),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
 
 export const attractions = pgTable("attractions", {
   id: serial("id").primaryKey(),
-  title: text("title").notNull(),
-  description: text("description").notNull(),
-  category: text("category").notNull().default("طبیعت‌گردی"),
-  distanceKm: integer("distance_km").notNull().default(10),
-  location: text("location").notNull().default(""),
-  imageUrl: text("image_url").notNull(),
-  mapUrl: text("map_url"),
-  active: boolean("active").notNull().default(true),
+  name: text("name").notNull(),
+  category: text("category").notNull().default("طبیعی"),
+  description: text("description").notNull().default(""),
+  image: text("image").notNull().default(""),
+  distanceKm: doublePrecision("distance_km").notNull().default(0),
+  travelTime: text("travel_time").notNull().default(""),
+  lat: doublePrecision("lat").notNull().default(0),
+  lng: doublePrecision("lng").notNull().default(0),
   sortOrder: integer("sort_order").notNull().default(0),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
-/* -------------------------------- bookings ------------------------------- */
+export type ReservationSource = "website" | "walk_in" | "phone" | "agency" | "partner_site" | "admin";
 
-export const bookings = pgTable("bookings", {
+export type ReservationStatus =
+  | "pending_payment"
+  | "paid"
+  | "confirmed"
+  | "rejected"
+  | "cancelled";
+
+export const reservations = pgTable("reservations", {
   id: serial("id").primaryKey(),
   trackingCode: text("tracking_code").notNull().unique(),
   reservationCode: text("reservation_code").unique(),
+  kind: text("kind").$type<"room" | "service">().notNull(),
+  roomId: integer("room_id").references(() => rooms.id, { onDelete: "set null" }),
+  serviceId: integer("service_id").references(() => services.id, { onDelete: "set null" }),
+  itemName: text("item_name").notNull().default(""),
   guestName: text("guest_name").notNull(),
   phone: text("phone").notNull(),
-  email: text("email"),
-  serviceType: text("service_type").notNull().default("room"),
-  roomId: integer("room_id").references(() => rooms.id, { onDelete: "set null" }),
-  serviceLabel: text("service_label").notNull().default(""),
+  email: text("email").notNull().default(""),
+  nationalId: text("national_id").notNull().default(""),
+  guests: integer("guests").notNull().default(1),
   checkIn: date("check_in").notNull(),
-  checkOut: date("check_out").notNull(),
-  timeSlot: text("time_slot"),
+  checkOut: date("check_out"),
+  timeSlot: text("time_slot").notNull().default(""),
   nights: integer("nights").notNull().default(1),
-  adults: integer("adults").notNull().default(2),
-  children: integer("children").notNull().default(0),
-  extraGuests: integer("extra_guests").notNull().default(0),
+  totalPrice: integer("total_price").notNull().default(0),
   extraGuestFee: integer("extra_guest_fee").notNull().default(0),
-  addons: jsonb("addons").$type<BookingAddon[]>().notNull().default([]),
-  addonsTotal: integer("addons_total").notNull().default(0),
-  promoCode: text("promo_code"),
-  discountAmount: integer("discount_amount").notNull().default(0),
-  rateBreakdown: jsonb("rate_breakdown").$type<{ date: string; price: number; label: string }[]>()
-    .notNull()
-    .default([]),
-  poolSlotId: integer("pool_slot_id").references(() => poolSlots.id, { onDelete: "set null" }),
-  basePrice: integer("base_price").notNull().default(0),
-  unitPrice: integer("unit_price").notNull().default(0),
-  totalAmount: integer("total_amount").notNull().default(0),
-  prepaymentAmount: integer("prepayment_amount").notNull().default(0),
-  paidAmount: integer("paid_amount").notNull().default(0),
-  paymentRef: text("payment_ref"),
-  status: text("status").notNull().default("pending_payment"),
-  notes: text("notes"),
-  adminNote: text("admin_note"),
-  paidAt: timestamp("paid_at", { withTimezone: true }),
-  reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  options: jsonb("options").$type<SelectedOption[]>().notNull().default([]),
+  promoCode: text("promo_code").notNull().default(""),
+  discount: integer("discount").notNull().default(0),
+  optionsTotal: integer("options_total").notNull().default(0),
+  nightly: jsonb("nightly").$type<{ date: string; price: number; kind: string }[]>().notNull().default([]),
+  settledAt: timestamp("settled_at"),
+  depositAmount: integer("deposit_amount").notNull().default(0),
+  paymentMethod: text("payment_method").notNull().default(""),
+  paymentRef: text("payment_ref").notNull().default(""),
+  paidAt: timestamp("paid_at"),
+  status: text("status").$type<ReservationStatus>().notNull().default("pending_payment"),
+  notes: text("notes").notNull().default(""),
+  adminNote: text("admin_note").notNull().default(""),
+  smsStatus: text("sms_status").notNull().default(""),
+  isDemo: boolean("is_demo").notNull().default(false),
+  source: text("source").$type<ReservationSource>().notNull().default("website"),
+  partnerId: integer("partner_id"),
+  externalRef: text("external_ref").notNull().default(""),
+  commission: integer("commission").notNull().default(0),
+  customerId: integer("customer_id"),
+  checkedInAt: timestamp("checked_in_at"),
+  checkedOutAt: timestamp("checked_out_at"),
+  giftCardCode: text("gift_card_code").notNull().default(""),
+  giftCardAmount: integer("gift_card_amount").notNull().default(0),
+  reviewInviteSentAt: timestamp("review_invite_sent_at"),
+  confirmedAt: timestamp("confirmed_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
 });
-
-export const paymentTransactions = pgTable("payment_transactions", {
-  id: serial("id").primaryKey(),
-  bookingId: integer("booking_id").notNull().references(() => bookings.id, { onDelete: "restrict" }),
-  provider: text("provider").notNull(),
-  amount: integer("amount").notNull(),
-  authority: text("authority").unique(),
-  callbackTokenHash: text("callback_token_hash").notNull(),
-  callbackData: jsonb("callback_data").$type<{
-    refNum?: string;
-    terminalId?: string;
-    amount?: number;
-    saleOrderId?: number;
-    saleReferenceId?: number;
-  }>().notNull().default({}),
-  status: text("status").notNull().default("creating"),
-  refCode: text("ref_code"),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-  verifiedAt: timestamp("verified_at", { withTimezone: true }),
-}, (table) => [index("payment_transactions_booking_idx").on(table.bookingId, table.createdAt)]);
-
-/* -------------------------------- messages ------------------------------- */
 
 export const messages = pgTable("messages", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
-  phone: text("phone").notNull(),
-  email: text("email"),
-  subject: text("subject").notNull().default("پیام عمومی"),
-  message: text("message").notNull(),
-  status: text("status").notNull().default("new"),
-  replyNote: text("reply_note"),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  phone: text("phone").notNull().default(""),
+  email: text("email").notNull().default(""),
+  subject: text("subject").notNull().default(""),
+  body: text("body").notNull(),
+  isRead: boolean("is_read").notNull().default(false),
+  isDemo: boolean("is_demo").notNull().default(false),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
 });
-
-/* --------------------------------- gallery ------------------------------- */
-
-export const gallery = pgTable("gallery", {
-  id: serial("id").primaryKey(),
-  title: text("title").notNull(),
-  imageUrl: text("image_url").notNull(),
-  category: text("category").notNull().default("هتل"),
-  active: boolean("active").notNull().default(true),
-  sortOrder: integer("sort_order").notNull().default(0),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
-
-/* ------------------------------ testimonials ----------------------------- */
 
 export const testimonials = pgTable("testimonials", {
   id: serial("id").primaryKey(),
-  guestName: text("guest_name").notNull(),
+  name: text("name").notNull(),
   city: text("city").notNull().default(""),
   rating: integer("rating").notNull().default(5),
-  comment: text("comment").notNull(),
-  active: boolean("active").notNull().default(true),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  body: text("body").notNull(),
+  isApproved: boolean("is_approved").notNull().default(true),
+  reservationId: integer("reservation_id"),
+  isDemo: boolean("is_demo").notNull().default(false),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
-/* ------------------------------ room pricing ----------------------------- */
+export const settings = pgTable("settings", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull().default(""),
+});
 
-export const roomDailyPrices = pgTable(
-  "room_daily_prices",
+export const uploads = pgTable("uploads", {
+  id: text("id").primaryKey(),
+  mime: text("mime").notNull(),
+  data: text("data").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const mediaFiles = pgTable("media_files", {
+  id: text("id").primaryKey(),
+  mime: text("mime").notNull(),
+  name: text("name").notNull().default(""),
+  size: integer("size").notNull().default(0),
+  data: bytea("data").notNull(),
+  chunkSize: integer("chunk_size").notNull().default(0),
+  complete: boolean("complete").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const mediaChunks = pgTable(
+  "media_chunks",
   {
-    id: serial("id").primaryKey(),
+    fileId: text("file_id")
+      .notNull()
+      .references(() => mediaFiles.id, { onDelete: "cascade" }),
+    idx: integer("idx").notNull(),
+    data: bytea("data").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.fileId, t.idx] })],
+);
+
+/* ---------- pricing calendar ---------- */
+export const roomRates = pgTable(
+  "room_rates",
+  {
     roomId: integer("room_id")
       .notNull()
       .references(() => rooms.id, { onDelete: "cascade" }),
     date: date("date").notNull(),
     price: integer("price").notNull(),
-    label: text("label").notNull().default("custom"),
-    note: text("note").notNull().default(""),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (table) => [uniqueIndex("room_daily_prices_room_date_idx").on(table.roomId, table.date)],
+  (t) => [primaryKey({ columns: [t.roomId, t.date] })],
 );
 
-export const specialDays = pgTable(
-  "special_days",
-  {
-    id: serial("id").primaryKey(),
-    date: date("date").notNull(),
-    title: text("title").notNull().default(""),
-    kind: text("kind").notNull().default("holiday"),
-    percent: integer("percent").notNull().default(0),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  },
-  (table) => [uniqueIndex("special_days_date_idx").on(table.date)],
-);
+export const calendarDays = pgTable("calendar_days", {
+  date: date("date").primaryKey(),
+  kind: text("kind").$type<"holiday" | "peak">().notNull(),
+  title: text("title").notNull().default(""),
+});
 
-/* ---------------------------------- sms ---------------------------------- */
+/* ---------- security ---------- */
+export const rateLimits = pgTable("rate_limits", {
+  key: text("key").primaryKey(),
+  count: integer("count").notNull().default(0),
+  resetAt: timestamp("reset_at").notNull(),
+});
 
 export const smsLogs = pgTable("sms_logs", {
   id: serial("id").primaryKey(),
-  provider: text("provider").notNull().default("kavenegar"),
-  pattern: text("pattern").notNull().default(""),
-  receptor: text("receptor").notNull().default(""),
-  status: text("status").notNull().default("pending"),
-  context: text("context").notNull().default("general"),
-  params: jsonb("params").$type<Record<string, string>>().notNull().default({}),
+  receptor: text("receptor").notNull(),
+  event: text("event").notNull(),
+  provider: text("provider").notNull(),
+  status: text("status").notNull(),
   response: text("response").notNull().default(""),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  campaignId: integer("campaign_id"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
-/* ------------------------------- accounting ------------------------------ */
+/* ---------- double-entry accounting ---------- */
+export type AccountType = "asset" | "liability" | "equity" | "revenue" | "expense";
 
 export const accounts = pgTable("accounts", {
   id: serial("id").primaryKey(),
   code: text("code").notNull().unique(),
   name: text("name").notNull(),
-  type: text("type").notNull().default("asset"),
-  level: text("level").notNull().default("general"),
-  parentCode: text("parent_code"),
+  level: integer("level").notNull(), // 1 = کل، 2 = معین، 3 = تفصیلی
+  parentId: integer("parent_id"),
+  type: text("type").$type<AccountType>().notNull(),
+  isSystem: boolean("is_system").notNull().default(false),
   isActive: boolean("is_active").notNull().default(true),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
-export const journalEntries = pgTable("journal_entries", {
+export const journalEntries = pgTable(
+  "journal_entries",
+  {
+    id: serial("id").primaryKey(),
+    date: date("date").notNull(),
+    description: text("description").notNull().default(""),
+    source: text("source").notNull().default("manual"), // manual | income | expense | reservation
+    sourceType: text("source_type").notNull().default(""), // deposit | revenue | refund | settlement
+    reservationId: integer("reservation_id"),
+    createdBy: text("created_by").notNull().default(""),
+    isDemo: boolean("is_demo").notNull().default(false),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (t) => [index("je_date_idx").on(t.date), index("je_res_idx").on(t.reservationId)],
+);
+
+export const journalLines = pgTable(
+  "journal_lines",
+  {
+    id: serial("id").primaryKey(),
+    entryId: integer("entry_id")
+      .notNull()
+      .references(() => journalEntries.id, { onDelete: "cascade" }),
+    accountId: integer("account_id")
+      .notNull()
+      .references(() => accounts.id),
+    debit: bigint("debit", { mode: "number" }).notNull().default(0),
+    credit: bigint("credit", { mode: "number" }).notNull().default(0),
+    description: text("description").notNull().default(""),
+  },
+  (t) => [index("jl_entry_idx").on(t.entryId), index("jl_account_idx").on(t.accountId)],
+);
+
+export type Account = typeof accounts.$inferSelect;
+
+/* ---------- dining: restaurants, cafés, bars ---------- */
+export type VenueKind = "restaurant" | "cafe" | "coffee_shop" | "bar" | "rooftop" | "breakfast";
+
+export const diningVenues = pgTable("dining_venues", {
   id: serial("id").primaryKey(),
-  number: integer("number").notNull(),
-  date: date("date").notNull(),
+  name: text("name").notNull(),
+  slug: text("slug").notNull().unique(),
+  kind: text("kind").$type<VenueKind>().notNull().default("restaurant"),
+  tagline: text("tagline").notNull().default(""),
   description: text("description").notNull().default(""),
-  reference: text("reference").notNull().default(""),
-  source: text("source").notNull().default("manual"),
-  createdBy: text("created_by").notNull().default("admin"),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  cuisine: text("cuisine").notNull().default(""),
+  hours: jsonb("hours").$type<{ label: string; time: string }[]>().notNull().default([]),
+  images: jsonb("images").$type<string[]>().notNull().default([]),
+  videoUrl: text("video_url").notNull().default(""),
+  capacity: integer("capacity").notNull().default(0),
+  priceLevel: integer("price_level").notNull().default(2), // 1..4
+  phone: text("phone").notNull().default(""),
+  features: jsonb("features").$type<string[]>().notNull().default([]),
+  openToPublic: boolean("open_to_public").notNull().default(true),
+  showMenu: boolean("show_menu").notNull().default(true),
+  bookingEnabled: boolean("booking_enabled").notNull().default(false),
+  isActive: boolean("is_active").notNull().default(true),
+  sortOrder: integer("sort_order").notNull().default(0),
+  isDemo: boolean("is_demo").notNull().default(false),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
-export const journalLines = pgTable("journal_lines", {
+export const menuItems = pgTable(
+  "menu_items",
+  {
+    id: serial("id").primaryKey(),
+    venueId: integer("venue_id")
+      .notNull()
+      .references(() => diningVenues.id, { onDelete: "cascade" }),
+    category: text("category").notNull().default("سایر"),
+    name: text("name").notNull(),
+    description: text("description").notNull().default(""),
+    price: integer("price").notNull().default(0),
+    image: text("image").notNull().default(""),
+    tags: jsonb("tags").$type<string[]>().notNull().default([]),
+    isAvailable: boolean("is_available").notNull().default(true),
+    isSignature: boolean("is_signature").notNull().default(false),
+    sortOrder: integer("sort_order").notNull().default(0),
+  },
+  (t) => [index("menu_venue_idx").on(t.venueId)],
+);
+
+export type DiningVenue = typeof diningVenues.$inferSelect;
+export type MenuItem = typeof menuItems.$inferSelect;
+
+export type Room = typeof rooms.$inferSelect;
+export type Service = typeof services.$inferSelect;
+export type Amenity = typeof amenities.$inferSelect;
+export type Attraction = typeof attractions.$inferSelect;
+export type Reservation = typeof reservations.$inferSelect;
+export type Message = typeof messages.$inferSelect;
+export type Testimonial = typeof testimonials.$inferSelect;
+
+/* ---------- promotions / special offers ---------- */
+export const promotions = pgTable("promotions", {
   id: serial("id").primaryKey(),
-  entryId: integer("entry_id")
-    .notNull()
-    .references(() => journalEntries.id, { onDelete: "cascade" }),
-  accountId: integer("account_id")
-    .notNull()
-    .references(() => accounts.id, { onDelete: "restrict" }),
-  debit: integer("debit").notNull().default(0),
-  credit: integer("credit").notNull().default(0),
+  code: text("code").notNull().unique(),
+  title: text("title").notNull().default(""),
   description: text("description").notNull().default(""),
+  image: text("image").notNull().default(""),
+  kind: text("kind").$type<"percent" | "fixed">().notNull().default("percent"),
+  value: integer("value").notNull().default(0),
+  maxDiscount: integer("max_discount").notNull().default(0),
+  minNights: integer("min_nights").notNull().default(1),
+  appliesTo: text("applies_to").$type<"all" | "rooms" | "services">().notNull().default("all"),
+  roomIds: jsonb("room_ids").$type<number[]>().notNull().default([]),
+  validFrom: date("valid_from"),
+  validTo: date("valid_to"),
+  maxUses: integer("max_uses").notNull().default(0),
+  isPublic: boolean("is_public").notNull().default(true),
+  isActive: boolean("is_active").notNull().default(true),
+  sortOrder: integer("sort_order").notNull().default(0),
+  isDemo: boolean("is_demo").notNull().default(false),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
-/* -------------------------------- menu ----------------------------------- */
+/* ---------- FAQ ---------- */
+export const faqs = pgTable("faqs", {
+  id: serial("id").primaryKey(),
+  question: text("question").notNull(),
+  answer: text("answer").notNull().default(""),
+  category: text("category").notNull().default("عمومی"),
+  sortOrder: integer("sort_order").notNull().default(0),
+  isActive: boolean("is_active").notNull().default(true),
+  isDemo: boolean("is_demo").notNull().default(false),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
 
-export const menuItems = pgTable("menu_items", {
+/* ---------- photo gallery ---------- */
+export const galleryItems = pgTable("gallery_items", {
+  id: serial("id").primaryKey(),
+  url: text("url").notNull(),
+  caption: text("caption").notNull().default(""),
+  category: text("category").notNull().default("هتل"),
+  sortOrder: integer("sort_order").notNull().default(0),
+  isActive: boolean("is_active").notNull().default(true),
+  isDemo: boolean("is_demo").notNull().default(false),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export type Promotion = typeof promotions.$inferSelect;
+export type Faq = typeof faqs.$inferSelect;
+export type GalleryItem = typeof galleryItems.$inferSelect;
+
+/* ================= customer club / CRM ================= */
+export type CustomerTier = "bronze" | "silver" | "gold" | "platinum";
+
+export const customers = pgTable(
+  "customers",
+  {
+    id: serial("id").primaryKey(),
+    name: text("name").notNull().default(""),
+    phone: text("phone").notNull().unique(),
+    email: text("email").notNull().default(""),
+    nationalId: text("national_id").notNull().default(""),
+    birthDate: date("birth_date"),
+    gender: text("gender").notNull().default(""),
+    city: text("city").notNull().default(""),
+    tier: text("tier").$type<CustomerTier>().notNull().default("bronze"),
+    points: integer("points").notNull().default(0),
+    totalSpent: bigint("total_spent", { mode: "number" }).notNull().default(0),
+    staysCount: integer("stays_count").notNull().default(0),
+    lastStayAt: date("last_stay_at"),
+    source: text("source").notNull().default("website"),
+    tags: jsonb("tags").$type<string[]>().notNull().default([]),
+    notes: text("notes").notNull().default(""),
+    smsOptIn: boolean("sms_opt_in").notNull().default(true),
+    birthdaySentYear: integer("birthday_sent_year").notNull().default(0),
+    isDemo: boolean("is_demo").notNull().default(false),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (t) => [index("customers_tier_idx").on(t.tier)],
+);
+
+export type SegmentRules = {
+  tiers?: CustomerTier[];
+  minStays?: number;
+  minSpent?: number;
+  birthdayMonth?: number; // jalali month 1..12
+  lastStayWithinDays?: number;
+  lastStayBeforeDays?: number;
+  city?: string;
+  source?: string;
+  tag?: string;
+};
+
+export const customerGroups = pgTable("customer_groups", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
   description: text("description").notNull().default(""),
-  price: integer("price").notNull().default(0),
-  category: text("category").notNull().default("غذای اصلی"),
-  imageUrl: text("image_url").notNull().default(""),
-  featured: boolean("featured").notNull().default(false),
-  active: boolean("active").notNull().default(true),
-  sortOrder: integer("sort_order").notNull().default(0),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  color: text("color").notNull().default("primary"),
+  kind: text("kind").$type<"static" | "dynamic">().notNull().default("static"),
+  rules: jsonb("rules").$type<SegmentRules>().notNull().default({}),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
-/* -------------------------------- offers --------------------------------- */
+export const customerGroupMembers = pgTable(
+  "customer_group_members",
+  {
+    groupId: integer("group_id")
+      .notNull()
+      .references(() => customerGroups.id, { onDelete: "cascade" }),
+    customerId: integer("customer_id")
+      .notNull()
+      .references(() => customers.id, { onDelete: "cascade" }),
+  },
+  (t) => [primaryKey({ columns: [t.groupId, t.customerId] })],
+);
 
-export const offers = pgTable("offers", {
+export type CampaignAudience = { all?: boolean; groupIds?: number[]; tiers?: CustomerTier[] };
+
+export const campaigns = pgTable("campaigns", {
   id: serial("id").primaryKey(),
-  slug: text("slug").notNull().unique(),
-  title: text("title").notNull(),
-  subtitle: text("subtitle").notNull().default(""),
-  description: text("description").notNull().default(""),
-  imageUrl: text("image_url").notNull().default(""),
-  badge: text("badge").notNull().default("پیشنهاد ویژه"),
-  price: integer("price").notNull().default(0),
-  oldPrice: integer("old_price").notNull().default(0),
-  includes: jsonb("includes").$type<string[]>().notNull().default([]),
-  roomId: integer("room_id").references(() => rooms.id, { onDelete: "set null" }),
-  validUntil: date("valid_until"),
-  featured: boolean("featured").notNull().default(false),
-  active: boolean("active").notNull().default(true),
-  sortOrder: integer("sort_order").notNull().default(0),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  name: text("name").notNull(),
+  audience: jsonb("audience").$type<CampaignAudience>().notNull().default({}),
+  message: text("message").notNull().default(""),
+  promoMode: text("promo_mode").$type<"none" | "shared" | "unique">().notNull().default("none"),
+  promoCode: text("promo_code").notNull().default(""),
+  promoKind: text("promo_kind").$type<"percent" | "fixed">().notNull().default("percent"),
+  promoValue: integer("promo_value").notNull().default(0),
+  promoValidDays: integer("promo_valid_days").notNull().default(30),
+  scheduledAt: timestamp("scheduled_at"),
+  status: text("status").$type<"draft" | "scheduled" | "sending" | "sent" | "failed">().notNull().default("draft"),
+  recipients: integer("recipients").notNull().default(0),
+  sent: integer("sent").notNull().default(0),
+  failed: integer("failed").notNull().default(0),
+  sentAt: timestamp("sent_at"),
+  isDemo: boolean("is_demo").notNull().default(false),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
-/* --------------------------------- events -------------------------------- */
-
-export const events = pgTable("events", {
+export const smsTemplates = pgTable("sms_templates", {
   id: serial("id").primaryKey(),
   title: text("title").notNull(),
-  description: text("description").notNull().default(""),
-  imageUrl: text("image_url").notNull().default(""),
-  category: text("category").notNull().default("رویداد"),
-  startsAt: date("starts_at").notNull(),
-  endDate: date("end_date"),
-  timeLabel: text("time_label").notNull().default(""),
-  location: text("location").notNull().default(""),
-  price: integer("price").notNull().default(0),
-  capacity: integer("capacity").notNull().default(0),
-  featured: boolean("featured").notNull().default(false),
-  active: boolean("active").notNull().default(true),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  body: text("body").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
-/* ------------------------------- promo codes ----------------------------- */
+/* ================= gift cards ================= */
+export type GiftCardStatus = "pending_payment" | "active" | "used" | "void";
 
-export const promoCodes = pgTable("promo_codes", {
+export const giftCards = pgTable("gift_cards", {
   id: serial("id").primaryKey(),
   code: text("code").notNull().unique(),
-  label: text("label").notNull().default(""),
-  kind: text("kind").notNull().default("percent"),
-  value: integer("value").notNull().default(0),
-  minNights: integer("min_nights").notNull().default(1),
-  maxUses: integer("max_uses").notNull().default(0),
-  usedCount: integer("used_count").notNull().default(0),
+  initialAmount: integer("initial_amount").notNull(),
+  balance: integer("balance").notNull().default(0),
+  purchaserName: text("purchaser_name").notNull().default(""),
+  purchaserPhone: text("purchaser_phone").notNull().default(""),
+  recipientName: text("recipient_name").notNull().default(""),
+  recipientPhone: text("recipient_phone").notNull().default(""),
+  message: text("message").notNull().default(""),
+  status: text("status").$type<GiftCardStatus>().notNull().default("pending_payment"),
+  paymentMethod: text("payment_method").notNull().default(""),
+  paymentRef: text("payment_ref").notNull().default(""),
+  paidAt: timestamp("paid_at"),
   expiresAt: date("expires_at"),
-  active: boolean("active").notNull().default(true),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  issuedBy: text("issued_by").notNull().default("online"),
+  isDemo: boolean("is_demo").notNull().default(false),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
-/* --------------------------------- reviews ------------------------------- */
-
-export const reviews = pgTable("reviews", {
+export const giftCardTx = pgTable("gift_card_tx", {
   id: serial("id").primaryKey(),
-  guestName: text("guest_name").notNull(),
-  city: text("city").notNull().default(""),
-  rating: integer("rating").notNull().default(5),
-  title: text("title").notNull().default(""),
-  comment: text("comment").notNull(),
-  roomId: integer("room_id").references(() => rooms.id, { onDelete: "set null" }),
-  stayDate: date("stay_date"),
-  status: text("status").notNull().default("pending"),
-  featured: boolean("featured").notNull().default(false),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  giftCardId: integer("gift_card_id")
+    .notNull()
+    .references(() => giftCards.id, { onDelete: "cascade" }),
+  amount: integer("amount").notNull(),
+  reservationId: integer("reservation_id"),
+  note: text("note").notNull().default(""),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
-/* ------------------------------ subscribers ------------------------------ */
+/* ================= restaurant / café table bookings ================= */
+export const tableBookings = pgTable(
+  "table_bookings",
+  {
+    id: serial("id").primaryKey(),
+    venueId: integer("venue_id")
+      .notNull()
+      .references(() => diningVenues.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    phone: text("phone").notNull(),
+    date: date("date").notNull(),
+    time: text("time").notNull(),
+    guests: integer("guests").notNull().default(2),
+    notes: text("notes").notNull().default(""),
+    status: text("status").$type<"new" | "confirmed" | "seated" | "cancelled" | "no_show">().notNull().default("new"),
+    source: text("source").notNull().default("website"),
+    isDemo: boolean("is_demo").notNull().default(false),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (t) => [index("tb_date_idx").on(t.date)],
+);
 
-export const subscribers = pgTable("subscribers", {
+/* ================= in-house guest requests ================= */
+export const guestRequests = pgTable("guest_requests", {
   id: serial("id").primaryKey(),
-  email: text("email").notNull().unique(),
-  source: text("source").notNull().default("website"),
-  active: boolean("active").notNull().default(true),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  reservationId: integer("reservation_id")
+    .notNull()
+    .references(() => reservations.id, { onDelete: "cascade" }),
+  category: text("category").notNull().default("other"),
+  status: text("status").$type<"open" | "in_progress" | "done">().notNull().default("open"),
+  unreadStaff: boolean("unread_staff").notNull().default(true),
+  unreadGuest: boolean("unread_guest").notNull().default(false),
+  isDemo: boolean("is_demo").notNull().default(false),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
-/* ---------------------------- concierge requests ------------------------- */
-
-export const conciergeRequests = pgTable("concierge_requests", {
+export const guestRequestMessages = pgTable("guest_request_messages", {
   id: serial("id").primaryKey(),
-  bookingCode: text("booking_code").notNull().default(""),
-  guestName: text("guest_name").notNull(),
-  phone: text("phone").notNull(),
-  serviceType: text("service_type").notNull().default("airport_transfer"),
-  details: text("details").notNull().default(""),
-  preferredDate: date("preferred_date"),
-  status: text("status").notNull().default("new"),
-  adminNote: text("admin_note").notNull().default(""),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  requestId: integer("request_id")
+    .notNull()
+    .references(() => guestRequests.id, { onDelete: "cascade" }),
+  sender: text("sender").$type<"guest" | "staff">().notNull(),
+  body: text("body").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
-/* -------------------------------- settings ------------------------------- */
-
-export const settings = pgTable("settings", {
-  id: integer("id").primaryKey().default(1),
-  hotelName: text("hotel_name").notNull().default("هتل کاج"),
-  tagline: text("tagline").notNull().default(""),
-  heroTitle: text("hero_title").notNull().default(""),
-  heroSubtitle: text("hero_subtitle").notNull().default(""),
-  heroImage: text("hero_image").notNull().default(""),
-  aboutTitle: text("about_title").notNull().default(""),
-  aboutText: text("about_text").notNull().default(""),
-  aboutImage: text("about_image").notNull().default(""),
-  storyText: text("story_text").notNull().default(""),
-  videoUrl: text("video_url"),
+/* ================= companions / guest list ================= */
+export const reservationGuests = pgTable("reservation_guests", {
+  id: serial("id").primaryKey(),
+  reservationId: integer("reservation_id")
+    .notNull()
+    .references(() => reservations.id, { onDelete: "cascade" }),
+  fullName: text("full_name").notNull(),
+  idNumber: text("id_number").notNull().default(""),
+  nationality: text("nationality").notNull().default("ایرانی"),
   phone: text("phone").notNull().default(""),
-  mobile: text("mobile").notNull().default(""),
-  email: text("email").notNull().default(""),
-  address: text("address").notNull().default(""),
-  mapLat: text("map_lat").notNull().default("37.2719"),
-  mapLng: text("map_lng").notNull().default("55.4323"),
-  mapAddress: text("map_address").notNull().default(""),
-  instagram: text("instagram").notNull().default(""),
-  telegram: text("telegram").notNull().default(""),
-  whatsapp: text("whatsapp").notNull().default(""),
-  whatsappLink: text("whatsapp_link").notNull().default(""),
-  checkInTime: text("check_in_time").notNull().default("۱۴:۰۰"),
-  checkOutTime: text("check_out_time").notNull().default("۱۲:۰۰"),
-  poolPrice: integer("pool_price").notNull().default(2500000),
-  poolTitle: text("pool_title").notNull().default("استخر خانوادگی کاج"),
-  poolDescription: text("pool_description").notNull().default(""),
-  poolImage: text("pool_image").notNull().default(""),
-  starRating: integer("star_rating").notNull().default(3),
-  city: text("city").notNull().default("شیراز"),
-  modulePool: boolean("module_pool").notNull().default(false),
-  moduleRestaurant: boolean("module_restaurant").notNull().default(true),
-  moduleCafe: boolean("module_cafe").notNull().default(true),
-  moduleSpa: boolean("module_spa").notNull().default(false),
-  diningTitle: text("dining_title").notNull().default("کافه‌‑رستوران کاج"),
-  diningSubtitle: text("dining_subtitle").notNull().default("طعم‌های اصیل شیراز در فضایی آرام"),
-  diningDescription: text("dining_description").notNull().default(""),
-  diningHours: text("dining_hours").notNull().default("۰۸:۰۰ تا ۲۳:۰۰"),
-  diningPhone: text("dining_phone").notNull().default(""),
-  diningImage: text("dining_image").notNull().default(""),
-  diningImage2: text("dining_image2").notNull().default(""),
-  diningVideoUrl: text("dining_video_url"),
-  diningNote: text("dining_note").notNull().default(""),
-  cardNumber: text("card_number").notNull().default(""),
-  cardHolder: text("card_holder").notNull().default(""),
-  paymentZarinpalEnabled: boolean("payment_zarinpal_enabled").notNull().default(false),
-  zarinpalMerchantId: text("zarinpal_merchant_id").notNull().default(""),
-  zarinpalSandbox: boolean("zarinpal_sandbox").notNull().default(false),
-  paymentZibalEnabled: boolean("payment_zibal_enabled").notNull().default(false),
-  zibalMerchant: text("zibal_merchant").notNull().default(""),
-  paymentSamanEnabled: boolean("payment_saman_enabled").notNull().default(false),
-  samanTerminalId: text("saman_terminal_id").notNull().default(""),
-  paymentMellatEnabled: boolean("payment_mellat_enabled").notNull().default(false),
-  mellatTerminalId: text("mellat_terminal_id").notNull().default(""),
-  mellatUsername: text("mellat_username").notNull().default(""),
-  mellatPassword: text("mellat_password").notNull().default(""),
-  totalRooms: integer("total_rooms").notNull().default(16),
-  heroMediaType: text("hero_media_type").notNull().default("image"),
-  heroVideoUrl: text("hero_video_url"),
-  poolMediaType: text("pool_media_type").notNull().default("video"),
-  poolVideoUrl: text("pool_video_url"),
-  poolVideoPoster: text("pool_video_poster").notNull().default(""),
-  extraGuestFee: integer("extra_guest_fee").notNull().default(350000),
-  poolBaseCapacity: integer("pool_base_capacity").notNull().default(8),
-  poolMaxCapacity: integer("pool_max_capacity").notNull().default(12),
-  roomsKicker: text("rooms_kicker").notNull().default("اقامتگاه"),
-  roomsTitle: text("rooms_title").notNull().default("اتاق‌ها و سوئیت‌های کاج"),
-  roomsDescription: text("rooms_description")
-    .notNull()
-    .default("۱۶ اتاق و سوئیت با منظره جنگل، امکانات کامل و چیدمانی گرم. اتاق مناسب خود را انتخاب کنید و درخواست رزرو ثبت نمایید."),
-  facilitiesKicker: text("facilities_kicker").notNull().default("امکانات هتل"),
-  facilitiesTitle: text("facilities_title").notNull().default("هر آنچه برای یک اقامت راحت نیاز دارید"),
-  facilitiesDescription: text("facilities_description")
-    .notNull()
-    .default("از استخر و اسپا تا رستوران محلی، ترانسفر فرودگاهی و پارکینگ سرپوشیده؛ همه در یک مجموعه."),
-  attractionsKicker: text("attractions_kicker").notNull().default("اطراف کاج"),
-  attractionsTitle: text("attractions_title").notNull().default("جاذبه‌های گردشگری نزدیک هتل"),
-  attractionsDescription: text("attractions_description")
-    .notNull()
-    .default("جنگل، آبشار، برج تاریخی و دریای خزر؛ هر روز اقامت خود را به یک ماجرای تازه تبدیل کنید."),
-  galleryKicker: text("gallery_kicker").notNull().default("گالری تصاویر"),
-  galleryTitle: text("gallery_title").notNull().default("نگاهی به دنیای کاج"),
-  galleryDescription: text("gallery_description").notNull().default("تصاویری واقعی از اتاق‌ها، استخر، رستوران و طبیعت اطراف هتل."),
-  testimonialsTitle: text("testimonials_title").notNull().default("خاطره‌هایی که مهمانان ما ساخته‌اند"),
-  mapTitle: text("map_title").notNull().default("ما را روی نقشه پیدا کنید"),
-  mapDescription: text("map_description")
-    .notNull()
-    .default("هتل کاج در کیلومتر ۸ جاده گالیکش به پارک ملی گلستان قرار دارد؛ دسترسی آسان از گرگان، گنبد کاووس و مشهد."),
-  ctaTitle: text("cta_title").notNull().default("اقامت بعدی خود را در کاج ثبت کنید"),
-  ctaDescription: text("cta_description")
-    .notNull()
-    .default("درخواست رزرو را آنلاین ثبت کنید، پیش‌پرداخت را پرداخت کنید و پس از تأیید پذیرش، کد رزرو خود را دریافت کنید."),
-  statYears: text("stat_years").notNull().default("از سال ۱۳۹۶"),
-  statYearsLabel: text("stat_years_label").notNull().default("میزبان خانواده‌ها"),
-  statGuests: text("stat_guests").notNull().default("+۱٬۲۰۰"),
-  statGuestsLabel: text("stat_guests_label").notNull().default("میزبانی از مهمانان"),
-  statRating: text("stat_rating").notNull().default("۴٫۸"),
-  statRatingCount: text("stat_rating_count").notNull().default("۳۱۲"),
-  roomRules: jsonb("room_rules").$type<string[]>().notNull().default([]),
-  poolRules: jsonb("pool_rules").$type<string[]>().notNull().default([]),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  relation: text("relation").notNull().default(""),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
-/* ------------------------------- pool slots ------------------------------ */
-
-export const poolSlots = pgTable("pool_slots", {
+/* ================= partners (agencies / partner websites) & API ================= */
+export const partners = pgTable("partners", {
   id: serial("id").primaryKey(),
-  label: text("label").notNull(),
-  price: integer("price").notNull(),
-  capacity: integer("capacity").notNull().default(8),
-  extraGuestFee: integer("extra_guest_fee").notNull().default(350000),
-  description: text("description").notNull().default(""),
-  active: boolean("active").notNull().default(true),
-  sortOrder: integer("sort_order").notNull().default(0),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  name: text("name").notNull(),
+  type: text("type").$type<"agency" | "site">().notNull().default("agency"),
+  contactName: text("contact_name").notNull().default(""),
+  phone: text("phone").notNull().default(""),
+  email: text("email").notNull().default(""),
+  tokenHash: text("token_hash").notNull().default(""),
+  tokenHint: text("token_hint").notNull().default(""),
+  secret: text("secret").notNull().default(""),
+  commissionPercent: integer("commission_percent").notNull().default(0),
+  autoConfirm: boolean("auto_confirm").notNull().default(true),
+  canCancel: boolean("can_cancel").notNull().default(true),
+  allowedIps: text("allowed_ips").notNull().default(""),
+  isActive: boolean("is_active").notNull().default(true),
+  lastUsedAt: timestamp("last_used_at"),
+  isDemo: boolean("is_demo").notNull().default(false),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
-export type Room = typeof rooms.$inferSelect;
-export type Facility = typeof facilities.$inferSelect;
-export type Attraction = typeof attractions.$inferSelect;
-export type Booking = typeof bookings.$inferSelect;
-export type Message = typeof messages.$inferSelect;
-export type GalleryItem = typeof gallery.$inferSelect;
-export type Testimonial = typeof testimonials.$inferSelect;
-export type Settings = typeof settings.$inferSelect;
-export type Admin = typeof admins.$inferSelect;
-export type PoolSlot = typeof poolSlots.$inferSelect;
-export type RoomDailyPrice = typeof roomDailyPrices.$inferSelect;
-export type SpecialDay = typeof specialDays.$inferSelect;
-export type SmsLog = typeof smsLogs.$inferSelect;
-export type Account = typeof accounts.$inferSelect;
-export type JournalEntry = typeof journalEntries.$inferSelect;
-export type JournalLine = typeof journalLines.$inferSelect;
-export type MenuItem = typeof menuItems.$inferSelect;
-export type Offer = typeof offers.$inferSelect;
-export type EventItem = typeof events.$inferSelect;
-export type PromoCode = typeof promoCodes.$inferSelect;
-export type GuestReview = typeof reviews.$inferSelect;
-export type Subscriber = typeof subscribers.$inferSelect;
-export type ConciergeRequest = typeof conciergeRequests.$inferSelect;
+export const partnerLogs = pgTable(
+  "partner_logs",
+  {
+    id: serial("id").primaryKey(),
+    partnerId: integer("partner_id"),
+    method: text("method").notNull(),
+    path: text("path").notNull(),
+    status: integer("status").notNull(),
+    ip: text("ip").notNull().default(""),
+    message: text("message").notNull().default(""),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (t) => [index("pl_partner_idx").on(t.partnerId)],
+);
+
+export type Customer = typeof customers.$inferSelect;
+export type CustomerGroup = typeof customerGroups.$inferSelect;
+export type Campaign = typeof campaigns.$inferSelect;
+export type GiftCard = typeof giftCards.$inferSelect;
+export type TableBooking = typeof tableBookings.$inferSelect;
+export type GuestRequest = typeof guestRequests.$inferSelect;
+export type Partner = typeof partners.$inferSelect;

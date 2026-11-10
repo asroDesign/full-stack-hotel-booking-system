@@ -1,95 +1,79 @@
-/** Input sanitisation & CSRF helpers shared by API routes. */
+import { headers } from "next/headers";
 
-const ALLOWED_URL = /^(https?:\/\/[^\s]+|\/[^\s]*)$/i;
+export { escapeHtml, safeUrl, safeUrlList } from "./sanitize";
 
-/**
- * Only absolute http(s) URLs and in-app relative paths are accepted for
- * image/video/iframe sources. This blocks `javascript:` and `data:` payloads
- * coming from admin forms (stored XSS vector).
- */
-export function safeUrl(value: unknown): string {
-  if (typeof value !== "string") return "";
-  const trimmed = value.trim();
-  if (!trimmed) return "";
-  if (!ALLOWED_URL.test(trimmed)) return "";
-  if (trimmed.startsWith("/") && (trimmed.startsWith("//") || trimmed.includes("\\"))) return "";
-  return trimmed.slice(0, 2048);
-}
-
-/** Removes control characters, HTML tags and trims overly long values. */
-export function sanitizeText(value: unknown, maxLength = 5000): string {
-  if (typeof value !== "string") return "";
-  return value
+/** Strip control characters and clamp length for free-text inputs. */
+export function cleanText(input: unknown, max = 2000): string {
+  return String(input ?? "")
+    // eslint-disable-next-line no-control-regex
     .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "")
-    .replace(/<\s*\/?\s*(script|iframe|object|embed|link|meta|style)[^>]*>/gi, "")
-    .replace(/on\w+\s*=/gi, "")
     .trim()
-    .slice(0, maxLength);
+    .slice(0, max);
 }
 
-export function sanitizeMultiline(value: unknown, maxLength = 8000): string {
-  return sanitizeText(value, maxLength);
+export async function clientIp(): Promise<string> {
+  const h = await headers();
+  const fwd = h.get("x-forwarded-for");
+  if (fwd) return fwd.split(",")[0].trim().slice(0, 64);
+  return (h.get("x-real-ip") ?? h.get("cf-connecting-ip") ?? "local").slice(0, 64);
 }
 
-/** Protects CSV exports from spreadsheet formula injection. */
-export function csvCell(value: unknown): string {
-  const raw = value === null || value === undefined ? "" : String(value);
-  const trimmed = raw.replace(/\r?\n/g, " ").trim();
-  const escaped = /^[=+\-@\t]/.test(trimmed) ? `'${trimmed}` : trimmed;
-  return `"${escaped.replace(/"/g, '""')}"`;
+/** Is the current request served over HTTPS (directly or via a reverse proxy)? */
+export async function isHttpsRequest(): Promise<boolean> {
+  if (process.env.COOKIE_SECURE === "true") return true;
+  if (process.env.COOKIE_SECURE === "false") return false;
+  const h = await headers();
+  const proto = (h.get("x-forwarded-proto") ?? "").split(",")[0].trim().toLowerCase();
+  if (proto) return proto === "https";
+  const origin = h.get("origin") ?? h.get("referer") ?? "";
+  return origin.startsWith("https://");
 }
 
-export function toCsv(rows: (string | number | null | undefined)[][]): string {
-  return "\uFEFF" + rows.map((row) => row.map(csvCell).join(",")).join("\r\n");
-}
-
-/**
- * CSRF protection for mutating requests.
- * Browsers always send `Origin` for cross-site POSTs; if it does not match the
- * request host we reject the call. Non-browser clients without Origin are
- * allowed so the API stays usable from mobile/curl clients.
- */
-export function isSameOrigin(request: Request): boolean {
-  const origin = request.headers.get("origin");
-  const fetchSite = request.headers.get("sec-fetch-site");
-  if (fetchSite && fetchSite !== "same-origin" && fetchSite !== "none") return false;
-  if (!origin) return true;
+/** CSRF protection for route handlers: the Origin (or Referer) must match the host. */
+export function isSameOrigin(req: Request): boolean {
+  const origin = req.headers.get("origin") ?? req.headers.get("referer");
+  if (!origin) return false;
+  const host = req.headers.get("x-forwarded-host") ?? req.headers.get("host");
   try {
-    const originHost = new URL(origin).host;
-    const requestHost = request.headers.get("host") ?? new URL(request.url).host;
-    return originHost === requestHost;
+    return new URL(origin).host === host;
   } catch {
     return false;
   }
 }
 
-export function forbiddenOrigin() {
-  return new Response(JSON.stringify({ error: "درخواست غیرمجاز (Origin نامعتبر)." }), {
-    status: 403,
-    headers: { "Content-Type": "application/json" },
-  });
+const IMAGE_MIMES = ["image/jpeg", "image/png", "image/webp", "image/gif", "image/avif", "image/heic", "image/heif"];
+const VIDEO_MIMES = ["video/mp4", "video/webm", "video/quicktime", "video/ogg"];
+
+export function allowedMime(mime: string): "image" | "video" | null {
+  if (IMAGE_MIMES.includes(mime)) return "image";
+  if (VIDEO_MIMES.includes(mime)) return "video";
+  return null; // SVG, HTML, etc. are rejected (stored-XSS risk)
 }
 
-export function securityHeaders(): Record<string, string> {
-  return {
-    "X-Content-Type-Options": "nosniff",
-    "X-Frame-Options": "SAMEORIGIN",
-    "Referrer-Policy": "strict-origin-when-cross-origin",
-    "X-XSS-Protection": "1; mode=block",
-    "Permissions-Policy": "camera=(), microphone=(), geolocation=(self)",
-    "Cross-Origin-Opener-Policy": "same-origin",
-    "Content-Security-Policy": [
-      "default-src 'self'",
-      "img-src 'self' data: blob: https:",
-      "media-src 'self' blob: https:",
-      "font-src 'self' data:",
-      "style-src 'self' 'unsafe-inline'",
-      "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
-      "connect-src 'self' https:",
-      "frame-src 'self' https://www.openstreetmap.org https://www.google.com",
-      "frame-ancestors 'self'",
-      "base-uri 'self'",
-      "form-action 'self' https://sep.shaparak.ir",
-    ].join("; "),
-  };
+/** Verify the file signature (magic bytes) matches the declared MIME type. */
+export function magicMatches(mime: string, head: Uint8Array): boolean {
+  const b = head;
+  const at = (i: number, bytes: number[]) => bytes.every((x, j) => b[i + j] === x);
+  switch (mime) {
+    case "image/jpeg":
+      return at(0, [0xff, 0xd8, 0xff]);
+    case "image/png":
+      return at(0, [0x89, 0x50, 0x4e, 0x47]);
+    case "image/gif":
+      return at(0, [0x47, 0x49, 0x46, 0x38]);
+    case "image/webp":
+      return at(0, [0x52, 0x49, 0x46, 0x46]) && at(8, [0x57, 0x45, 0x42, 0x50]);
+    case "image/heic":
+    case "image/heif":
+    case "image/avif":
+    case "video/mp4":
+    case "video/quicktime":
+      return at(4, [0x66, 0x74, 0x79, 0x70]); // ....ftyp
+    case "video/webm":
+      return at(0, [0x1a, 0x45, 0xdf, 0xa3]);
+    case "video/ogg":
+      return at(0, [0x4f, 0x67, 0x67, 0x53]);
+    default:
+      return false;
+  }
 }

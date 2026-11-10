@@ -1,28 +1,21 @@
-import type { Metadata } from "next";
-import GalleryGrid from "@/components/site/GalleryGrid";
-import { PageHero } from "@/components/site/ui";
-import { getGallery, getSettings } from "@/lib/data";
+import { notFound } from "next/navigation";
+import { getSettings } from "@/lib/data";
+import { getGallery } from "@/lib/extras";
+import { PageHero, EmptyState } from "@/components/site/ui";
+import { GalleryGrid } from "@/components/site/extras-client";
+import { faNum } from "@/lib/utils";
 
-export const dynamic = "force-dynamic";
-
-export const metadata: Metadata = {
-  title: "گالری تصاویر",
-  description: "تصاویر اتاق‌ها، کافه‑رستوران، حیاط و طبیعت اطراف هتل کاج.",
-};
+export const metadata = { title: "گالری تصاویر" };
 
 export default async function GalleryPage() {
-  const [items, settings] = await Promise.all([getGallery(), getSettings()]);
-
+  const s = await getSettings();
+  if (s.moduleGallery !== "1") notFound();
+  const items = await getGallery();
   return (
     <>
-      <PageHero
-        kicker="گالری کاج"
-        title="قبل از سفر، کاج را ببینید"
-        description="مجموعه‌ای از تصاویر واقعی فضاهای هتل و طبیعت اطراف؛ برای دیدن تصویر بزرگ‌تر روی هر عکس بزنید."
-        image={settings.heroImage}
-      />
-      <section className="container-x py-12">
-        <GalleryGrid items={items} />
+      <PageHero eyebrow={`${faNum(items.length)} تصویر`} title="گالری تصاویر" subtitle={`نگاهی به اتاق‌ها، فضاهای عمومی، رستوران و حال‌وهوای ${s.hotelName}.`} image={items[0]?.url || "/images/hero.jpg"} />
+      <section className="mx-auto max-w-7xl px-6 py-14">
+        {items.length === 0 ? <EmptyState title="هنوز تصویری در گالری ثبت نشده است" /> : <GalleryGrid items={items.map((i) => ({ id: i.id, url: i.url, caption: i.caption, category: i.category }))} />}
       </section>
     </>
   );

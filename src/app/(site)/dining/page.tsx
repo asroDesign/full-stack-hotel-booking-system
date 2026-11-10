@@ -1,150 +1,48 @@
-import type { Metadata } from "next";
+import { Img } from "@/components/img";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import MenuTabs from "@/components/site/MenuTabs";
-import { PageHero, SectionHeading } from "@/components/site/ui";
-import { getFacilities, getGallery, getMenuItems, getSettings } from "@/lib/data";
-import { hasDining, modulesFromSettings } from "@/lib/modules";
-import { toFa, phoneHref } from "@/lib/format";
-import SmartImage from "@/components/site/SmartImage";
+import { ArrowLeft, Clock, Users } from "lucide-react";
+import { getSettings } from "@/lib/data";
+import { getActiveVenues, priceLevelLabel, venueKindLabel } from "@/lib/dining";
+import { PageHero, EmptyState } from "@/components/site/ui";
+import { faNum } from "@/lib/utils";
 
-export const dynamic = "force-dynamic";
-
-export const metadata: Metadata = {
-  title: "کافه و رستوران",
-  description: "معرفی کافه‌‑رستوران هتل، منوی غذا و نوشیدنی، ساعت سرو و رزرو میز.",
-};
+export const metadata = { title: "رستوران و کافه" };
 
 export default async function DiningPage() {
-  const [settings, menu, gallery, facilities] = await Promise.all([
-    getSettings(),
-    getMenuItems(),
-    getGallery(),
-    getFacilities(),
-  ]);
-  const modules = modulesFromSettings(settings);
-  if (!hasDining(modules)) notFound();
-
-  const diningImages = gallery.filter((item) => ["رستوران", "کافه"].includes(item.category)).slice(0, 4);
-  const diningFacilities = facilities.filter((facility) => facility.category === "پذیرایی" || facility.slug.includes("restaurant") || facility.slug.includes("cafe"));
-  const categories = Array.from(new Set(menu.map((item) => item.category)));
-
+  const s = await getSettings();
+  if (s.moduleDining !== "1") notFound();
+  const venues = await getActiveVenues();
   return (
     <>
-      <PageHero
-        kicker={`${modules.restaurant && modules.cafe ? "کافه و رستوران" : modules.cafe ? "کافه" : "رستوران"} · ${settings.city}`}
-        title={settings.diningTitle}
-        description={settings.diningDescription}
-        image={settings.diningImage || settings.heroImage}
-        breadcrumb={[{ label: "کافه و رستوران" }]}
-      >
-        <div className="flex flex-wrap gap-2 pt-1">
-          <a href={phoneHref((settings.diningPhone || settings.phone))} className="btn btn-gold btn-sm">
-            رزرو میز با تماس
-          </a>
-          <Link href="/contact" className="btn btn-outline btn-sm">
-            ارسال درخواست رزرو میز
-          </Link>
-          <span className="neu-pill !text-[9px]">🕒 {settings.diningHours}</span>
-          <span className="neu-pill !text-[9px]">🍽 {toFa(menu.length)} آیتم منو</span>
-        </div>
-      </PageHero>
-
-      <section className="container-x py-12">
-        <div className="grid gap-8 lg:grid-cols-[1.6fr_1fr] lg:items-start">
-          <div className="space-y-5">
-            <SectionHeading
-              align="start"
-              kicker="منوی کاج"
-              title="از صبحانه تا شام، با طعم‌های محلی"
-              description="مواد اولیه تازه، نان خانگی و قهوه تخصصی. منو بر اساس فصل به‌روزرسانی می‌شود."
-            />
-            <MenuTabs
-              items={menu.map((item) => ({
-                id: item.id,
-                name: item.name,
-                description: item.description,
-                price: item.price,
-                category: item.category,
-                imageUrl: item.imageUrl,
-                featured: item.featured,
-              }))}
-            />
-          </div>
-
-          <aside className="space-y-4 lg:sticky lg:top-28">
-            <div className="panel space-y-3 p-5">
-              <h2 className="text-sm font-extrabold text-forest-950">اطلاعات کافه و رستوران</h2>
-              <dl className="space-y-2 text-[11px]">
-                <div className="flex justify-between gap-2">
-                  <dt className="text-forest-800/55">ساعت سرو</dt>
-                  <dd className="font-bold text-forest-950">{settings.diningHours}</dd>
+      <PageHero eyebrow="طعم‌ها" title="رستوران و کافه" subtitle={`منوی کامل رستوران‌ها و کافه‌های ${s.hotelName}؛ برای مهمانان هتل و عموم.`} image={venues[0]?.images[0] || "/images/hero.jpg"} />
+      <section className="mx-auto max-w-7xl px-6 py-14">
+        {venues.length === 0 ? (
+          <EmptyState title="هنوز رستوران یا کافه‌ای معرفی نشده است" />
+        ) : (
+          <div className="space-y-8">
+            {venues.map((v, i) => (
+              <Link key={v.id} href={`/dining/${v.slug}`} className={`tpl-card group grid overflow-hidden rounded-box bg-base-100 shadow-sm ring-1 ring-base-300 transition hover:shadow-xl md:grid-cols-2 ${i % 2 ? "md:[&>*:first-child]:order-2" : ""}`}>
+                <div className="relative min-h-64 overflow-hidden">
+                  <Img src={v.images[0] || "/images/hero.jpg"} alt={v.name} className="absolute inset-0 h-full w-full object-cover transition duration-700 group-hover:scale-105" />
+                  <span className="absolute right-4 top-4 badge badge-secondary">{venueKindLabel(v.kind)}</span>
                 </div>
-                <div className="flex justify-between gap-2">
-                  <dt className="text-forest-800/55">تلفن رزرو میز</dt>
-                  <dd dir="ltr" className="font-bold text-forest-950">{settings.diningPhone || settings.phone}</dd>
-                </div>
-                <div className="flex justify-between gap-2">
-                  <dt className="text-forest-800/55">دسته‌بندی‌های منو</dt>
-                  <dd className="font-bold text-forest-950">{toFa(categories.length)} دسته</dd>
-                </div>
-              </dl>
-              {settings.diningNote ? (
-                <p className="rounded-lg bg-gold-50 p-3 text-[10px] leading-5 text-gold-700">{settings.diningNote}</p>
-              ) : null}
-              <a href={settings.whatsappLink || "#"} target="_blank" rel="noreferrer" className="btn btn-gold btn-sm w-full">
-                هماهنگی در واتس‌اپ
-              </a>
-            </div>
-
-            {diningImages.length ? (
-              <div className="panel space-y-2 p-3">
-                <p className="px-1 text-[10px] font-bold text-forest-950">تصاویر فضا</p>
-                <div className="grid grid-cols-2 gap-2">
-                  {diningImages.map((image) => (
-                    <SmartImage key={image.id} src={image.imageUrl} alt={image.title} loading="lazy" className="aspect-square w-full rounded-lg object-cover" />
-                  ))}
-                </div>
-              </div>
-            ) : null}
-          </aside>
-        </div>
-      </section>
-
-      {diningFacilities.length ? (
-        <section className="border-y border-cream-200 py-12">
-          <div className="container-x space-y-6">
-            <SectionHeading align="start" kicker="فضا و خدمات" title="آنچه در کافه‑رستوران کاج تجربه می‌کنید" />
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {diningFacilities.map((facility) => (
-                <article key={facility.id} className="overflow-hidden rounded-xl border border-cream-200 bg-cream-50">
-                  <SmartImage src={facility.imageUrl} alt={facility.title} loading="lazy" className="h-36 w-full object-cover" />
-                  <div className="space-y-1 p-3">
-                    <p className="text-xs font-extrabold text-forest-950">
-                      {facility.icon} {facility.title}
-                    </p>
-                    <p className="line-clamp-2 text-[10px] leading-5 text-forest-800/60">{facility.description}</p>
+                <div className="flex flex-col justify-center p-8 md:p-10">
+                  <div className="text-sm text-gold-600">{v.cuisine} <span className="text-base-content/40">{priceLevelLabel(v.priceLevel)}</span></div>
+                  <h2 className="mt-2 text-3xl font-black text-brand-900">{v.name}</h2>
+                  {v.tagline && <p className="mt-2 text-lg text-base-content/60">{v.tagline}</p>}
+                  <div className="mt-5 flex flex-wrap gap-2 text-xs">
+                    {v.hours.map((h, j) => <span key={j} className="badge badge-ghost gap-1"><Clock className="h-3 w-3" />{h.label}: {h.time}</span>)}
+                    {v.capacity > 0 && <span className="badge badge-ghost gap-1"><Users className="h-3 w-3" />{faNum(v.capacity)} نفر</span>}
+                    {!v.openToPublic && <span className="badge badge-warning badge-soft">ویژه مهمانان هتل</span>}
                   </div>
-                </article>
-              ))}
-            </div>
+                  <span className="mt-6 inline-flex items-center gap-1 font-bold text-brand-700">{v.showMenu ? "مشاهده منو و جزئیات" : "مشاهده جزئیات"} <ArrowLeft className="h-4 w-4 transition group-hover:-translate-x-1" /></span>
+                </div>
+              </Link>
+            ))}
           </div>
-        </section>
-      ) : null}
-
-      {settings.diningVideoUrl ? (
-        <section className="container-x py-12">
-          <div className="overflow-hidden rounded-2xl border border-cream-200 shadow-card">
-            <video
-              src={settings.diningVideoUrl}
-              poster={settings.diningImage || settings.heroImage}
-              controls
-              playsInline
-              className="aspect-video w-full bg-forest-950 object-cover"
-            />
-          </div>
-        </section>
-      ) : null}
+        )}
+      </section>
     </>
   );
 }

@@ -1,251 +1,455 @@
-import { and, asc, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, lt, lte, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { accounts, journalEntries, journalLines, type Account, type Booking } from "@/db/schema";
-import { todayISO } from "@/lib/format";
+import { accounts, journalEntries, journalLines, reservations, type Account, type AccountType, type Reservation } from "@/db/schema";
 
-export const CHART_OF_ACCOUNTS: {
-  code: string;
-  name: string;
-  type: "asset" | "liability" | "equity" | "revenue" | "expense";
-  level: "general" | "subsidiary" | "detail";
-  parentCode?: string;
-}[] = [
-  { code: "1", name: "دارایی‌ها", type: "asset", level: "general" },
-  { code: "101", name: "دارایی جاری", type: "asset", level: "subsidiary", parentCode: "1" },
-  { code: "10101", name: "موجودی نقد و بانک", type: "asset", level: "detail", parentCode: "101" },
-  { code: "10102", name: "حساب‌های دریافتنی", type: "asset", level: "detail", parentCode: "101" },
-  { code: "10103", name: "موجودی مواد و کالا", type: "asset", level: "detail", parentCode: "101" },
-  { code: "102", name: "دارایی ثابت", type: "asset", level: "subsidiary", parentCode: "1" },
-  { code: "10201", name: "ساختمان و تأسیسات", type: "asset", level: "detail", parentCode: "102" },
-  { code: "2", name: "بدهی‌ها", type: "liability", level: "general" },
-  { code: "201", name: "بدهی جاری", type: "liability", level: "subsidiary", parentCode: "2" },
-  { code: "20101", name: "حساب‌های پرداختنی", type: "liability", level: "detail", parentCode: "201" },
-  { code: "20102", name: "مالیات و عوارض پرداختنی", type: "liability", level: "detail", parentCode: "201" },
-  { code: "3", name: "حقوق صاحبان سهام", type: "equity", level: "general" },
-  { code: "301", name: "سرمایه", type: "equity", level: "subsidiary", parentCode: "3" },
-  { code: "30101", name: "سرمایه مالک", type: "equity", level: "detail", parentCode: "301" },
-  { code: "4", name: "درآمدها", type: "revenue", level: "general" },
-  { code: "401", name: "درآمد عملیاتی", type: "revenue", level: "subsidiary", parentCode: "4" },
-  { code: "40101", name: "درآمد اقامت اتاق", type: "revenue", level: "detail", parentCode: "401" },
-  { code: "40102", name: "درآمد استخر خانوادگی", type: "revenue", level: "detail", parentCode: "401" },
-  { code: "40103", name: "درآمد خدمات و امکانات", type: "revenue", level: "detail", parentCode: "401" },
-  { code: "5", name: "هزینه‌ها", type: "expense", level: "general" },
-  { code: "501", name: "هزینه‌های عملیاتی", type: "expense", level: "subsidiary", parentCode: "5" },
-  { code: "50101", name: "حقوق و دستمزد", type: "expense", level: "detail", parentCode: "501" },
-  { code: "50102", name: "آب، برق و انرژی", type: "expense", level: "detail", parentCode: "501" },
-  { code: "50103", name: "مواد غذایی و پذیرایی", type: "expense", level: "detail", parentCode: "501" },
-  { code: "50104", name: "تعمیر و نگهداری", type: "expense", level: "detail", parentCode: "501" },
-  { code: "50105", name: "بازاریابی و تبلیغات", type: "expense", level: "detail", parentCode: "501" },
-  { code: "50106", name: "سایر هزینه‌ها", type: "expense", level: "detail", parentCode: "501" },
+export const ACC = {
+  CASH: "110101",
+  BANK: "110201",
+  GATEWAY: "110202",
+  RECEIVABLE: "130101",
+  PREPAY: "220101",
+  ROOM_REV: "410101",
+  ROOM_EXTRA_REV: "410102",
+  POOL_REV: "410201",
+  SERVICE_REV: "410202",
+} as const;
+
+export const typeLabel: Record<AccountType, string> = {
+  asset: "دارایی",
+  liability: "بدهی",
+  equity: "حقوق صاحبان سرمایه",
+  revenue: "درآمد",
+  expense: "هزینه",
+};
+export const levelLabel = ["", "کل", "معین", "تفصیلی"];
+export const debitNature = (t: AccountType) => t === "asset" || t === "expense";
+
+type Seed = [code: string, name: string, type: AccountType, children?: Seed[]];
+const CHART: Seed[] = [
+  ["11", "موجودی نقد و بانک", "asset", [
+    ["1101", "صندوق", "asset", [["110101", "صندوق هتل", "asset"]]],
+    ["1102", "بانک‌ها", "asset", [["110201", "بانک ملی - حساب جاری", "asset"], ["110202", "درگاه پرداخت اینترنتی", "asset"]]],
+  ]],
+  ["13", "حساب‌های دریافتنی", "asset", [["1301", "دریافتنی از مهمانان", "asset", [["130101", "مانده رزرو مهمانان", "asset"]]]]],
+  ["15", "دارایی‌های ثابت", "asset", [["1501", "اثاثیه و تجهیزات", "asset", [["150101", "تجهیزات اتاق‌ها", "asset"], ["150102", "تجهیزات استخر", "asset"]]]]],
+  ["21", "حساب‌های پرداختنی", "liability", [["2101", "پرداختنی تجاری", "liability", [["210101", "تامین‌کنندگان", "liability"]]], ["2102", "مالیات و عوارض پرداختنی", "liability", [["210201", "مالیات بر ارزش افزوده", "liability"]]]]],
+  ["22", "پیش‌دریافت‌ها", "liability", [["2201", "پیش‌دریافت رزرو", "liability", [["220101", "پیش‌پرداخت مهمانان", "liability"], ["220102", "کارت‌های هدیه فروش‌رفته", "liability"]]]]],
+  ["31", "سرمایه", "equity", [["3101", "سرمایه", "equity", [["310101", "سرمایه مالک", "equity"]]], ["3102", "برداشت", "equity", [["310201", "برداشت مالک", "equity"]]]]],
+  ["41", "درآمدهای عملیاتی", "revenue", [
+    ["4101", "درآمد اقامت", "revenue", [["410101", "درآمد اتاق‌ها", "revenue"], ["410102", "درآمد خدمات و وعده‌های اتاق", "revenue"]]],
+    ["4102", "درآمد خدمات", "revenue", [["410201", "درآمد استخر خانوادگی", "revenue"], ["410202", "درآمد سایر خدمات", "revenue"], ["410203", "درآمد رستوران و کافه", "revenue"]]],
+  ]],
+  ["42", "درآمدهای غیرعملیاتی", "revenue", [["4201", "درآمدهای متفرقه", "revenue", [["420101", "سایر درآمدها", "revenue"]]]]],
+  ["51", "هزینه‌های عملیاتی", "expense", [
+    ["5101", "حقوق و دستمزد", "expense", [["510101", "حقوق کارکنان", "expense"], ["510102", "بیمه کارکنان", "expense"]]],
+    ["5102", "آب، برق و گاز", "expense", [["510201", "قبوض آب و برق و گاز", "expense"]]],
+    ["5103", "تعمیرات و نگهداری", "expense", [["510301", "تعمیرات ساختمان و تاسیسات", "expense"], ["510302", "نگهداری استخر", "expense"]]],
+    ["5104", "مواد مصرفی", "expense", [["510401", "مواد غذایی", "expense"], ["510402", "مواد بهداشتی و شوینده", "expense"]]],
+  ]],
+  ["52", "هزینه‌های اداری و فروش", "expense", [
+    ["5201", "تبلیغات و بازاریابی", "expense", [["520101", "تبلیغات اینترنتی", "expense"]]],
+    ["5202", "هزینه‌های عمومی", "expense", [["520201", "کارمزد بانکی", "expense"], ["520202", "هزینه پیامک", "expense"], ["520203", "سایر هزینه‌ها", "expense"]]],
+  ]],
 ];
 
-export { ACCOUNT_TYPE_LABELS, ACCOUNT_LEVEL_LABELS } from "@/lib/accounting-constants";
-import { ACCOUNT_TYPE_LABELS, ACCOUNT_LEVEL_LABELS } from "@/lib/accounting-constants";
-
-export async function ensureChartOfAccounts(): Promise<Account[]> {
-  const existing = await db.select({ code: accounts.code }).from(accounts);
-  const codes = new Set(existing.map((row) => row.code));
-  const missing = CHART_OF_ACCOUNTS.filter((account) => !codes.has(account.code));
-  if (missing.length > 0) {
-    await db
-      .insert(accounts)
-      .values(missing.map((account) => ({ ...account, parentCode: account.parentCode ?? null })))
-      .onConflictDoNothing();
+let ensured: Promise<void> | null = null;
+export function ensureAccounts(): Promise<void> {
+  if (!ensured) {
+    ensured = (async () => {
+      const [{ c }] = await db.select({ c: sql<number>`count(*)::int` }).from(accounts);
+      if (c > 0) {
+        // upgrade: add system accounts introduced in newer versions (never modifies existing ones)
+        const add = async (parentCode: string, code: string, name: string, type: AccountType) => {
+          const [parent] = await db.select().from(accounts).where(eq(accounts.code, parentCode));
+          if (parent) await db.insert(accounts).values({ code, name, type, level: 3, parentId: parent.id, isSystem: true }).onConflictDoNothing();
+        };
+        await add("4102", "410203", "درآمد رستوران و کافه", "revenue");
+        await add("2201", "220102", "کارت‌های هدیه فروش‌رفته", "liability");
+        return;
+      }
+      const insert = async (nodes: Seed[], parentId: number | null, level: number) => {
+        for (const [code, name, type, children] of nodes) {
+          const [row] = await db
+            .insert(accounts)
+            .values({ code, name, type, level, parentId, isSystem: true })
+            .onConflictDoNothing()
+            .returning({ id: accounts.id });
+          if (row && children) await insert(children, row.id, level + 1);
+        }
+      };
+      await insert(CHART, null, 1);
+      // upgrade path: create vouchers for reservations that already exist
+      const existing = await db.select().from(reservations);
+      for (const r of existing) if (r.paidAt || r.status === "confirmed") await syncVouchersRaw(r);
+    })().catch((e) => {
+      ensured = null;
+      throw e;
+    });
   }
+  return ensured;
+}
+
+export async function accountIdsByCode(codes: string[]) {
+  const rows = await db.select({ id: accounts.id, code: accounts.code }).from(accounts).where(inArray(accounts.code, codes));
+  return new Map(rows.map((r) => [r.code, r.id]));
+}
+
+export type VoucherLineInput = { accountId?: number; code?: string; debit: number; credit: number; description?: string };
+export type VoucherInput = {
+  date: string;
+  description: string;
+  source?: string;
+  sourceType?: string;
+  reservationId?: number | null;
+  createdBy?: string;
+  lines: VoucherLineInput[];
+};
+
+export async function createVoucher(v: VoucherInput): Promise<{ ok: true; id: number } | { ok: false; error: string }> {
+  await ensureAccounts();
+  return createVoucherRaw(v);
+}
+
+/** Internal: assumes the chart of accounts already exists (no ensureAccounts → no deadlock in bootstrap). */
+async function createVoucherRaw(v: VoucherInput): Promise<{ ok: true; id: number } | { ok: false; error: string }> {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(v.date)) return { ok: false, error: "تاریخ سند نامعتبر است." };
+  const codes = v.lines.filter((l) => l.code).map((l) => l.code!);
+  const byCode = codes.length ? await accountIdsByCode(codes) : new Map<string, number>();
+  const lines = v.lines
+    .map((l) => ({
+      accountId: l.accountId ?? byCode.get(l.code ?? "") ?? 0,
+      debit: Math.round(Math.max(0, Number(l.debit) || 0)),
+      credit: Math.round(Math.max(0, Number(l.credit) || 0)),
+      description: String(l.description ?? "").slice(0, 300),
+    }))
+    .filter((l) => l.debit > 0 || l.credit > 0);
+  if (lines.length < 2) return { ok: false, error: "سند باید حداقل دو ردیف داشته باشد." };
+  if (lines.some((l) => l.debit > 0 && l.credit > 0)) return { ok: false, error: "هر ردیف فقط می‌تواند بدهکار یا بستانکار باشد." };
+  const td = lines.reduce((s, l) => s + l.debit, 0);
+  const tc = lines.reduce((s, l) => s + l.credit, 0);
+  if (td !== tc) return { ok: false, error: "سند تراز نیست؛ جمع بدهکار و بستانکار باید برابر باشد." };
+  const ids = Array.from(new Set(lines.map((l) => l.accountId)));
+  const accs = await db.select().from(accounts).where(inArray(accounts.id, ids));
+  if (accs.length !== ids.length || accs.some((a) => a.level !== 3 || !a.isActive))
+    return { ok: false, error: "ثبت سند فقط روی حساب‌های تفصیلی فعال امکان‌پذیر است." };
+
+  const id = await db.transaction(async (tx) => {
+    const [e] = await tx
+      .insert(journalEntries)
+      .values({
+        date: v.date,
+        description: v.description.slice(0, 500),
+        source: v.source ?? "manual",
+        sourceType: v.sourceType ?? "",
+        reservationId: v.reservationId ?? null,
+        createdBy: v.createdBy ?? "",
+      })
+      .returning({ id: journalEntries.id });
+    await tx.insert(journalLines).values(lines.map((l) => ({ ...l, entryId: e.id })));
+    return e.id;
+  });
+  return { ok: true, id };
+}
+
+/** Local calendar date (server timezone) as ISO yyyy-mm-dd. */
+export function dateToISO(d: Date) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+/**
+ * Keep the automatic vouchers of a reservation in sync with its state:
+ *  deposit    : Dr bank/gateway       / Cr guest prepayments        (deposit received)
+ *  revenue    : Dr prepayments + A/R  / Cr room|service revenue      (reservation confirmed)
+ *  refund     : Dr prepayments        / Cr bank                       (rejected/cancelled after payment)
+ *  settlement : Dr cash               / Cr A/R                        (balance paid at check-in)
+ */
+export async function syncReservationVouchers(resOrId: number | Reservation) {
+  await ensureAccounts();
+  return syncVouchersRaw(resOrId);
+}
+
+async function syncVouchersRaw(resOrId: number | Reservation) {
+  const r = typeof resOrId === "number" ? (await db.select().from(reservations).where(eq(reservations.id, resOrId)))[0] : resOrId;
+  if (!r) return;
+  const existing = await db
+    .select({ id: journalEntries.id, sourceType: journalEntries.sourceType, date: journalEntries.date })
+    .from(journalEntries)
+    .where(and(eq(journalEntries.source, "reservation"), eq(journalEntries.reservationId, r.id)));
+  const oldDate = (t: string) => existing.find((e) => e.sourceType === t)?.date;
+  const today = dateToISO(new Date());
+  const label = `${r.guestName} · ${r.itemName} · ${r.trackingCode}`;
+  const paid = !!r.paidAt && r.depositAmount > 0;
+  const deposit = paid ? r.depositAmount : 0;
+  const total = r.totalPrice;
+  const cashAcc = r.paymentMethod === "gateway" ? ACC.GATEWAY : ACC.BANK;
+
+  const desired: VoucherInput[] = [];
+  if (paid) {
+    desired.push({
+      date: oldDate("deposit") ?? dateToISO(r.paidAt!),
+      description: `دریافت پیش‌پرداخت رزرو - ${label}`,
+      sourceType: "deposit",
+      lines: [
+        ...(r.giftCardAmount > 0 ? [{ code: "220102", debit: Math.min(deposit, r.giftCardAmount), credit: 0, description: `کارت هدیه ${r.giftCardCode}` }] : []),
+        ...(deposit - Math.min(deposit, r.giftCardAmount) > 0
+          ? [{ code: cashAcc, debit: deposit - Math.min(deposit, r.giftCardAmount), credit: 0, description: r.paymentRef ? `مرجع ${r.paymentRef}` : "" }]
+          : []),
+        { code: ACC.PREPAY, debit: 0, credit: deposit },
+      ],
+    });
+  }
+  if (r.status === "confirmed" && total > 0) {
+    const revLines: VoucherLineInput[] = [];
+    if (r.kind === "room") {
+      // total is net of any promo discount; never let a part go negative
+      const roomPart = Math.max(0, total - r.optionsTotal);
+      const optionsPart = total - roomPart;
+      if (roomPart > 0) revLines.push({ code: ACC.ROOM_REV, debit: 0, credit: roomPart });
+      if (optionsPart > 0) revLines.push({ code: ACC.ROOM_EXTRA_REV, debit: 0, credit: optionsPart });
+    } else {
+      revLines.push({ code: r.itemName.includes("استخر") ? ACC.POOL_REV : ACC.SERVICE_REV, debit: 0, credit: total });
+    }
+    const lines: VoucherLineInput[] = [];
+    if (deposit > 0) lines.push({ code: ACC.PREPAY, debit: Math.min(deposit, total), credit: 0 });
+    if (total - deposit > 0) lines.push({ code: ACC.RECEIVABLE, debit: total - deposit, credit: 0 });
+    desired.push({
+      date: oldDate("revenue") ?? (r.confirmedAt ? dateToISO(r.confirmedAt) : today),
+      description: `شناسایی درآمد رزرو ${r.reservationCode ?? ""} - ${label}`,
+      sourceType: "revenue",
+      lines: [...lines, ...revLines],
+    });
+    if (r.settledAt && total - deposit > 0) {
+      desired.push({
+        date: oldDate("settlement") ?? dateToISO(r.settledAt),
+        description: `تسویه مانده رزرو هنگام پذیرش - ${label}`,
+        sourceType: "settlement",
+        lines: [
+          { code: ACC.CASH, debit: total - deposit, credit: 0 },
+          { code: ACC.RECEIVABLE, debit: 0, credit: total - deposit },
+        ],
+      });
+    }
+  }
+  if ((r.status === "rejected" || r.status === "cancelled") && paid) {
+    desired.push({
+      date: oldDate("refund") ?? today,
+      description: `استرداد پیش‌پرداخت رزرو ${r.status === "rejected" ? "رد شده" : "لغو شده"} - ${label}`,
+      sourceType: "refund",
+      lines: [
+        { code: ACC.PREPAY, debit: deposit, credit: 0 },
+        { code: cashAcc, debit: 0, credit: deposit },
+      ],
+    });
+  }
+
+  if (existing.length) await db.delete(journalEntries).where(inArray(journalEntries.id, existing.map((e) => e.id)));
+  for (const v of desired) await createVoucherRaw({ ...v, source: "reservation", reservationId: r.id, createdBy: "سیستم" });
+}
+
+/* ------------------------------ reports ------------------------------ */
+
+export async function getAccounts() {
+  await ensureAccounts();
   return db.select().from(accounts).orderBy(asc(accounts.code));
 }
 
-export type JournalLineInput = { accountId: number; debit: number; credit: number; description?: string };
-
-export async function createJournalEntry(input: {
-  date: string;
-  description: string;
-  reference?: string;
-  source?: string;
-  createdBy?: string;
-  lines: JournalLineInput[];
-}): Promise<{ ok: true; id: number; number: number } | { ok: false; error: string }> {
-  const lines = input.lines.filter((line) => line.accountId > 0 && (line.debit > 0 || line.credit > 0));
-  if (lines.length < 2) return { ok: false, error: "حداقل دو ردیف با مبلغ لازم است." };
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(input.date)) return { ok: false, error: "تاریخ سند معتبر نیست." };
-
-  const totalDebit = lines.reduce((sum, line) => sum + Math.max(0, Math.round(line.debit)), 0);
-  const totalCredit = lines.reduce((sum, line) => sum + Math.max(0, Math.round(line.credit)), 0);
-  if (totalDebit !== totalCredit) return { ok: false, error: "جمع بدهکار و بستانکار باید برابر باشد." };
-  if (totalDebit <= 0) return { ok: false, error: "مبلغ سند باید بزرگ‌تر از صفر باشد." };
-
-  const accountRows = await db
-    .select({ id: accounts.id })
-    .from(accounts)
-    .where(inArray(accounts.id, lines.map((line) => line.accountId)));
-  if (accountRows.length !== new Set(lines.map((line) => line.accountId)).size) {
-    return { ok: false, error: "یکی از حساب‌ها معتبر نیست." };
-  }
-
-  try {
-    const result = await db.transaction(async (tx) => {
-      await tx.execute(sql`select pg_advisory_xact_lock(4488201)`);
-      const maxRow = await tx.select({ max: sql<number>`coalesce(max(${journalEntries.number}), 0)` }).from(journalEntries);
-      const nextNumber = Number(maxRow[0]?.max ?? 0) + 1;
-      const [entry] = await tx
-        .insert(journalEntries)
-        .values({
-          number: nextNumber,
-          date: input.date,
-          description: input.description.slice(0, 400),
-          reference: (input.reference ?? "").slice(0, 120),
-          source: input.source ?? "manual",
-          createdBy: input.createdBy ?? "admin",
-        })
-        .returning();
-      await tx.insert(journalLines).values(
-        lines.map((line) => ({
-          entryId: entry.id,
-          accountId: line.accountId,
-          debit: Math.max(0, Math.round(line.debit)),
-          credit: Math.max(0, Math.round(line.credit)),
-          description: (line.description ?? "").slice(0, 240),
-        })),
-      );
-      return entry;
-    });
-    return { ok: true, id: result.id, number: result.number };
-  } catch (error) {
-    console.error("[accounting] create entry failed", error);
-    return { ok: false, error: "ثبت سند انجام نشد." };
-  }
+async function sums(from?: string, to?: string) {
+  const conds = [];
+  if (from) conds.push(gte(journalEntries.date, from));
+  if (to) conds.push(lte(journalEntries.date, to));
+  const rows = await db
+    .select({
+      accountId: journalLines.accountId,
+      debit: sql<number>`coalesce(sum(${journalLines.debit}),0)::bigint`,
+      credit: sql<number>`coalesce(sum(${journalLines.credit}),0)::bigint`,
+    })
+    .from(journalLines)
+    .innerJoin(journalEntries, eq(journalEntries.id, journalLines.entryId))
+    .where(conds.length ? and(...conds) : undefined)
+    .groupBy(journalLines.accountId);
+  return new Map(rows.map((r) => [r.accountId, { debit: Number(r.debit), credit: Number(r.credit) }]));
 }
 
-async function accountIdByCode(code: string): Promise<number | null> {
-  const rows = await db.select({ id: accounts.id }).from(accounts).where(eq(accounts.code, code)).limit(1);
-  return rows[0]?.id ?? null;
+function rollup(all: Account[], leaf: Map<number, { debit: number; credit: number }>) {
+  const children = new Map<number, Account[]>();
+  for (const a of all) if (a.parentId) children.set(a.parentId, [...(children.get(a.parentId) ?? []), a]);
+  const memo = new Map<number, { debit: number; credit: number }>();
+  const calc = (a: Account): { debit: number; credit: number } => {
+    if (memo.has(a.id)) return memo.get(a.id)!;
+    const own = leaf.get(a.id) ?? { debit: 0, credit: 0 };
+    const res = (children.get(a.id) ?? []).reduce((acc, ch) => {
+      const x = calc(ch);
+      return { debit: acc.debit + x.debit, credit: acc.credit + x.credit };
+    }, { ...own });
+    memo.set(a.id, res);
+    return res;
+  };
+  all.forEach(calc);
+  return { totals: memo, children };
 }
 
-/** Posts the revenue/asset movement for a confirmed booking (idempotent). */
-export async function postBookingRevenue(booking: Booking): Promise<void> {
-  const reference = `booking-${booking.id}`;
-  const existing = await db
-    .select({ id: journalEntries.id })
-    .from(journalEntries)
-    .where(eq(journalEntries.reference, reference))
-    .limit(1);
-  if (existing[0]) return;
+export type TrialRow = {
+  id: number;
+  code: string;
+  name: string;
+  level: number;
+  type: AccountType;
+  openDebit: number;
+  openCredit: number;
+  debit: number;
+  credit: number;
+  balDebit: number;
+  balCredit: number;
+};
 
-  await ensureChartOfAccounts();
-  const [bankId, receivableId, roomsRevenueId, poolRevenueId, servicesRevenueId] = await Promise.all([
-    accountIdByCode("10101"),
-    accountIdByCode("10102"),
-    accountIdByCode("40101"),
-    accountIdByCode("40102"),
-    accountIdByCode("40103"),
-  ]);
-  if (!bankId || !receivableId || !roomsRevenueId || !poolRevenueId || !servicesRevenueId) return;
-
-  const paid = Math.min(booking.paidAmount, booking.totalAmount);
-  const receivable = Math.max(0, booking.totalAmount - paid);
-  const services = booking.addonsTotal;
-  const coreRevenue = Math.max(0, booking.totalAmount - services);
-  const revenueAccountId = booking.serviceType === "pool" ? poolRevenueId : roomsRevenueId;
-
-  const lines: JournalLineInput[] = [];
-  if (paid > 0) lines.push({ accountId: bankId, debit: paid, credit: 0, description: "پیش‌پرداخت دریافت‌شده" });
-  if (receivable > 0)
-    lines.push({ accountId: receivableId, debit: receivable, credit: 0, description: "مانده در محل پذیرش" });
-  if (coreRevenue > 0)
-    lines.push({ accountId: revenueAccountId, debit: 0, credit: coreRevenue, description: "درآمد اقامت/استخر" });
-  if (services > 0)
-    lines.push({ accountId: servicesRevenueId, debit: 0, credit: services, description: "درآمد خدمات و امکانات" });
-
-  await createJournalEntry({
-    date: todayISO(),
-    description: `رزرو ${booking.reservationCode ?? booking.trackingCode} — ${booking.guestName}`,
-    reference,
-    source: "booking",
-    lines,
-  });
+export async function trialBalance(from: string, to: string, level: 1 | 2 | 3) {
+  const all = await getAccounts();
+  const [open, period] = await Promise.all([sums(undefined, prevDay(from)), sums(from, to)]);
+  const o = rollup(all, open).totals;
+  const p = rollup(all, period).totals;
+  const rows: TrialRow[] = all
+    .filter((a) => a.level === level)
+    .map((a) => {
+      const ob = (o.get(a.id)?.debit ?? 0) - (o.get(a.id)?.credit ?? 0);
+      const pd = p.get(a.id)?.debit ?? 0;
+      const pc = p.get(a.id)?.credit ?? 0;
+      const bal = ob + pd - pc;
+      return {
+        id: a.id,
+        code: a.code,
+        name: a.name,
+        level: a.level,
+        type: a.type,
+        openDebit: ob > 0 ? ob : 0,
+        openCredit: ob < 0 ? -ob : 0,
+        debit: pd,
+        credit: pc,
+        balDebit: bal > 0 ? bal : 0,
+        balCredit: bal < 0 ? -bal : 0,
+      };
+    })
+    .filter((r) => r.openDebit || r.openCredit || r.debit || r.credit);
+  const total = rows.reduce(
+    (t, r) => ({
+      openDebit: t.openDebit + r.openDebit,
+      openCredit: t.openCredit + r.openCredit,
+      debit: t.debit + r.debit,
+      credit: t.credit + r.credit,
+      balDebit: t.balDebit + r.balDebit,
+      balCredit: t.balCredit + r.balCredit,
+    }),
+    { openDebit: 0, openCredit: 0, debit: 0, credit: 0, balDebit: 0, balCredit: 0 },
+  );
+  return { rows, total };
 }
 
-export async function getJournalBook(options?: { from?: string; to?: string; limit?: number; source?: string }) {
-  const filters = [];
-  if (options?.from) filters.push(gte(journalEntries.date, options.from));
-  if (options?.to) filters.push(lte(journalEntries.date, options.to));
-  if (options?.source && options.source !== "all") filters.push(eq(journalEntries.source, options.source));
+export async function profitLoss(from: string, to: string) {
+  const all = await getAccounts();
+  const { totals } = rollup(all, await sums(from, to));
+  const section = (type: "revenue" | "expense") => {
+    const sign = type === "revenue" ? -1 : 1;
+    const groups = all
+      .filter((a) => a.type === type && a.level === 1)
+      .map((g) => {
+        const subs = all
+          .filter((a) => a.parentId === g.id)
+          .map((m) => ({
+            code: m.code,
+            name: m.name,
+            amount: sign * ((totals.get(m.id)?.debit ?? 0) - (totals.get(m.id)?.credit ?? 0)),
+            details: all
+              .filter((t) => t.parentId === m.id)
+              .map((t) => ({ code: t.code, name: t.name, amount: sign * ((totals.get(t.id)?.debit ?? 0) - (totals.get(t.id)?.credit ?? 0)) }))
+              .filter((t) => t.amount !== 0),
+          }))
+          .filter((m) => m.amount !== 0 || m.details.length);
+        return { code: g.code, name: g.name, amount: subs.reduce((s, x) => s + x.amount, 0), subs };
+      })
+      .filter((g) => g.subs.length);
+    return { groups, total: groups.reduce((s, g) => s + g.amount, 0) };
+  };
+  const revenue = section("revenue");
+  const expense = section("expense");
+  return { revenue, expense, net: revenue.total - expense.total };
+}
+
+export async function journalBook(from: string, to: string, opts: { source?: string; q?: string } = {}) {
+  await ensureAccounts();
+  const conds = [gte(journalEntries.date, from), lte(journalEntries.date, to)];
+  if (opts.source) conds.push(eq(journalEntries.source, opts.source));
+  if (opts.q) conds.push(sql`${journalEntries.description} ilike ${"%" + opts.q + "%"}`);
   const entries = await db
     .select()
     .from(journalEntries)
-    .where(filters.length ? and(...filters) : undefined)
-    .orderBy(desc(journalEntries.date), desc(journalEntries.number))
-    .limit(options?.limit ?? 200);
-  if (entries.length === 0) return [];
+    .where(and(...conds))
+    .orderBy(asc(journalEntries.date), asc(journalEntries.id))
+    .limit(1000);
+  if (!entries.length) return [];
   const lines = await db
     .select({
-      id: journalLines.id,
       entryId: journalLines.entryId,
       debit: journalLines.debit,
       credit: journalLines.credit,
       description: journalLines.description,
-      accountCode: accounts.code,
-      accountName: accounts.name,
-    })
-    .from(journalLines)
-    .innerJoin(accounts, eq(journalLines.accountId, accounts.id))
-    .where(inArray(journalLines.entryId, entries.map((entry) => entry.id)))
-    .orderBy(asc(journalLines.id));
-  return entries.map((entry) => ({
-    ...entry,
-    lines: lines.filter((line) => line.entryId === entry.id),
-  }));
-}
-
-export async function getTrialBalance(from?: string, to?: string) {
-  const filters = [];
-  if (from) filters.push(gte(journalEntries.date, from));
-  if (to) filters.push(lte(journalEntries.date, to));
-  const rows = await db
-    .select({
-      accountId: accounts.id,
       code: accounts.code,
       name: accounts.name,
-      type: accounts.type,
-      level: accounts.level,
-      debit: sql<number>`coalesce(sum(${journalLines.debit}), 0)`,
-      credit: sql<number>`coalesce(sum(${journalLines.credit}), 0)`,
+      id: journalLines.id,
     })
-    .from(accounts)
-    .leftJoin(journalLines, eq(journalLines.accountId, accounts.id))
-    .leftJoin(journalEntries, and(eq(journalLines.entryId, journalEntries.id), filters.length ? and(...filters) : undefined))
-    .groupBy(accounts.id, accounts.code, accounts.name, accounts.type, accounts.level)
-    .orderBy(asc(accounts.code));
+    .from(journalLines)
+    .innerJoin(accounts, eq(accounts.id, journalLines.accountId))
+    .where(inArray(journalLines.entryId, entries.map((e) => e.id)))
+    .orderBy(asc(journalLines.id));
+  return entries.map((e) => ({ ...e, lines: lines.filter((l) => l.entryId === e.id) }));
+}
 
-  return rows.map((row) => {
-    const debit = Number(row.debit);
-    const credit = Number(row.credit);
-    const balance = debit - credit;
-    return {
-      ...row,
-      debit,
-      credit,
-      balance,
-      balanceLabel: balance >= 0 ? "بدهکار" : "بستانکار",
-    };
+export async function ledger(accountId: number, from: string, to: string) {
+  const all = await getAccounts();
+  const acc = all.find((a) => a.id === accountId);
+  if (!acc) return null;
+  const ids = new Set<number>([acc.id]);
+  let grew = true;
+  while (grew) {
+    grew = false;
+    for (const a of all) if (a.parentId && ids.has(a.parentId) && !ids.has(a.id)) {
+      ids.add(a.id);
+      grew = true;
+    }
+  }
+  const idList = Array.from(ids);
+  const [openRow] = await db
+    .select({ bal: sql<number>`coalesce(sum(${journalLines.debit} - ${journalLines.credit}),0)::bigint` })
+    .from(journalLines)
+    .innerJoin(journalEntries, eq(journalEntries.id, journalLines.entryId))
+    .where(and(inArray(journalLines.accountId, idList), lt(journalEntries.date, from)));
+  const rows = await db
+    .select({
+      id: journalLines.id,
+      entryId: journalEntries.id,
+      date: journalEntries.date,
+      entryDesc: journalEntries.description,
+      description: journalLines.description,
+      debit: journalLines.debit,
+      credit: journalLines.credit,
+      code: accounts.code,
+      name: accounts.name,
+    })
+    .from(journalLines)
+    .innerJoin(journalEntries, eq(journalEntries.id, journalLines.entryId))
+    .innerJoin(accounts, eq(accounts.id, journalLines.accountId))
+    .where(and(inArray(journalLines.accountId, idList), gte(journalEntries.date, from), lte(journalEntries.date, to)))
+    .orderBy(asc(journalEntries.date), asc(journalEntries.id), asc(journalLines.id))
+    .limit(3000);
+  let running = Number(openRow?.bal ?? 0);
+  const opening = running;
+  const out = rows.map((r) => {
+    running += Number(r.debit) - Number(r.credit);
+    return { ...r, debit: Number(r.debit), credit: Number(r.credit), balance: running };
   });
+  return { account: acc, opening, rows: out, closing: running };
 }
 
-export async function getProfitLoss(from?: string, to?: string) {
-  const balance = await getTrialBalance(from, to);
-  const revenue = balance.filter((row) => row.type === "revenue");
-  const expenses = balance.filter((row) => row.type === "expense");
-  const totalRevenue = revenue.reduce((sum, row) => sum + (row.credit - row.debit), 0);
-  const totalExpenses = expenses.reduce((sum, row) => sum + (row.debit - row.credit), 0);
-  return {
-    revenue,
-    expenses,
-    totalRevenue,
-    totalExpenses,
-    netProfit: totalRevenue - totalExpenses,
-  };
-}
-
-export async function listAccounts() {
-  return ensureChartOfAccounts();
+function prevDay(iso: string) {
+  const d = new Date(iso + "T00:00:00Z");
+  d.setUTCDate(d.getUTCDate() - 1);
+  return d.toISOString().slice(0, 10);
 }

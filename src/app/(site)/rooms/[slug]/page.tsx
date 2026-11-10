@@ -1,216 +1,159 @@
-import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import RoomCard from "@/components/site/RoomCard";
-import { Breadcrumb } from "@/components/site/ui";
-import { getRoomBySlug, getRooms, getSettings } from "@/lib/data";
-import { addDaysISO, formatMoney, toFa, phoneHref } from "@/lib/format";
-import SmartImage from "@/components/site/SmartImage";
+import { and, asc, eq, ne } from "drizzle-orm";
+import { BedDouble, Building2, CheckCircle2, ChevronLeft, Eye, Maximize, Users, Clock, PlusCircle } from "lucide-react";
+import { db } from "@/db";
+import { rooms, services } from "@/db/schema";
+import { getSettings } from "@/lib/data";
+import { getContent } from "@/lib/content";
+import { toBookRoom, toBookService } from "@/lib/booking";
+import { optionUnitLabel } from "@/lib/pricing";
+import { faNum, formatPrice } from "@/lib/utils";
+import { Gallery, VideoPlayer } from "@/components/media";
+import { BookingForm } from "@/components/booking-form";
+import { RoomCard } from "@/components/site/ui";
 
-export const dynamic = "force-dynamic";
-
-export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
+export default async function RoomDetail({ params, searchParams }: { params: Promise<{ slug: string }>; searchParams: Promise<{ checkIn?: string; checkOut?: string; guests?: string }> }) {
   const { slug } = await params;
-  const room = await getRoomBySlug(slug);
-  if (!room) return { title: "اتاق یافت نشد" };
-  return { title: room.name, description: room.description };
-}
+  const sp = await searchParams;
+  const [room] = await db.select().from(rooms).where(eq(rooms.slug, decodeURIComponent(slug)));
+  if (!room || !room.isActive) notFound();
+  const [s, { booking }] = await Promise.all([getSettings(), getContent()]);
+  const [allRooms, bookable, similar] = await Promise.all([
+    db.select().from(rooms).where(eq(rooms.isActive, true)).orderBy(asc(rooms.sortOrder)),
+    db.select().from(services).where(and(eq(services.isActive, true), eq(services.isBookable, true))),
+    db.select().from(rooms).where(and(eq(rooms.type, room.type), ne(rooms.id, room.id), eq(rooms.isActive, true))).limit(3),
+  ]);
 
-export default async function RoomDetailPage({ params }: { params: Promise<{ slug: string }> }) {
-  const { slug } = await params;
-  const [room, settings, allRooms] = await Promise.all([getRoomBySlug(slug), getSettings(), getRooms()]);
-  if (!room) notFound();
-
-  const prepayment = Math.round((room.pricePerNight * room.prepaymentPercent) / 100);
-  const related = allRooms.filter((item) => item.id !== room.id && item.roomType === room.roomType).slice(0, 3);
-  const fallbackRelated = allRooms.filter((item) => item.id !== room.id).slice(0, 3);
-  const suggestions = related.length ? related : fallbackRelated;
-  const bookingHref = `/booking?service=room&roomId=${room.id}&checkIn=${addDaysISO(1)}&checkOut=${addDaysISO(3)}`;
-  const images = [room.coverImage, ...room.gallery.filter((image) => image !== room.coverImage)];
+  const specs = [
+    { Icon: Users, label: "ظرفیت استاندارد", value: `${faNum(room.capacity)} نفر` },
+    { Icon: PlusCircle, label: "حداکثر ظرفیت", value: room.extraBeds ? `${faNum(room.capacity + room.extraBeds)} نفر${room.extraGuestPrice ? ` (نفر اضافه ${formatPrice(room.extraGuestPrice)})` : ""}` : "بدون نفر اضافه" },
+    { Icon: Maximize, label: "متراژ", value: `${faNum(room.size)} متر مربع` },
+    { Icon: BedDouble, label: "نوع تخت", value: room.beds || "—" },
+    { Icon: Eye, label: "چشم‌انداز", value: room.view || "—" },
+    { Icon: Building2, label: "طبقه / شماره", value: `${faNum(room.floor)} / ${faNum(room.roomNumber)}` },
+  ];
 
   return (
-    <>
-      <section className="container-x pt-6">
-        <div className="panel overflow-hidden">
-          <div className="grid gap-0 lg:grid-cols-[1.4fr_1fr]">
-            <div className="space-y-3 p-6">
-              <Breadcrumb items={[{ label: "اتاق‌ها", href: "/rooms" }, { label: room.name }]} />
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="neu-pill neu-pill-accent">{room.roomType}</span>
-                {room.featured ? <span className="neu-pill">⭐ پیشنهاد ویژه کاج</span> : null}
-                {!room.active ? <span className="neu-pill !text-rose-600">غیرفعال</span> : null}
-              </div>
-              <h1 className="display-xl text-2xl text-forest-950 sm:text-3xl lg:text-4xl">{room.name}</h1>
-              <p className="max-w-2xl text-[12px] leading-7 text-forest-800/65">{room.description}</p>
-              <div className="neu-inset flex flex-wrap gap-x-4 gap-y-1.5 rounded-2xl px-3 py-2.5 text-[10px] font-semibold text-forest-800/70">
-                <span>🛏 ظرفیت {toFa(room.capacity)} نفر</span>
-                <span>👥 حداکثر {toFa(room.maxCapacity)} نفر</span>
-                <span>📐 {toFa(room.size)} متر</span>
-                <span>🛌 {room.bedType}</span>
-                <span>🪟 {room.view}</span>
-                <span>🏢 طبقه {toFa(room.floor)} · اتاق {toFa(room.roomNumber)}</span>
-              </div>
-            </div>
-            <div className="p-4">
-              <div className="neu-img h-full min-h-56">
-                <SmartImage src={room.coverImage} alt={room.name} className="h-full w-full object-cover" />
-              </div>
-            </div>
+    <div className="mx-auto max-w-7xl px-6 pb-10 pt-32 in-data-[tpl=boutique]:pt-10">
+      <nav className="mb-6 flex items-center gap-1 text-sm text-slate-500">
+        <Link href="/" className="hover:text-brand-700">خانه</Link><ChevronLeft className="h-4 w-4" />
+        <Link href="/rooms" className="hover:text-brand-700">اتاق‌ها</Link><ChevronLeft className="h-4 w-4" />
+        <span className="text-slate-800">{room.name}</span>
+      </nav>
+
+      <div className="grid gap-10 lg:grid-cols-[1.5fr_1fr]">
+        <div className="space-y-10">
+          <Gallery images={room.images} alt={room.name} hasVideo={!!room.videoUrl} />
+
+          <div>
+            <span className="rounded-full bg-gold-400/15 px-3 py-1 text-xs font-bold text-gold-600">{room.type}</span>
+            <h1 className="mt-3 text-3xl font-black text-slate-900 md:text-4xl">{room.name}</h1>
+            <p className="mt-3 text-lg leading-8 text-slate-500">{room.shortDescription}</p>
           </div>
-        </div>
-      </section>
 
-      <section className="container-x py-10">
-        <div className="grid gap-6 lg:grid-cols-[1.65fr_1fr] lg:items-start">
-          <div className="space-y-6">
-            <div className="grid gap-2 sm:grid-cols-4">
-              {images.slice(0, 4).map((image, index) => (
-                <div
-                  key={`${image}-${index}`}
-                  className={`overflow-hidden rounded-2xl ${index === 0 ? "sm:col-span-2 sm:row-span-2" : ""}`}
-                >
-                  <SmartImage
-                    src={image}
-                    alt={`${room.name} ${toFa(index + 1)}`}
-                    loading="lazy"
-                    className={`w-full object-cover ${index === 0 ? "aspect-[4/3] sm:aspect-square" : "aspect-[4/3]"}`}
-                  />
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+            {specs.map(({ Icon, label, value }) => (
+              <div key={label} className="card card-border bg-base-100 shadow-sm flex items-center gap-3 p-4 flex-row">
+                <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-brand-50 text-brand-700"><Icon className="h-5 w-5" /></span>
+                <div className="min-w-0">
+                  <div className="text-xs text-slate-500">{label}</div>
+                  <div className="truncate text-sm font-bold text-slate-800">{value}</div>
                 </div>
-              ))}
-            </div>
+              </div>
+            ))}
+          </div>
 
-            <article className="panel space-y-4 p-6">
-              <h2 className="text-lg font-extrabold text-forest-950">درباره این اتاق</h2>
-              <p className="text-sm leading-8 text-forest-800/70">{room.longDescription || room.description}</p>
-              <div className="grid gap-3 border-t border-cream-100 pt-4 sm:grid-cols-2">
-                {[
-                  { label: "نوع اقامتگاه", value: room.roomType },
-                  { label: "ظرفیت", value: `${toFa(room.capacity)} نفر` },
-                  { label: "متراژ", value: `${toFa(room.size)} مترمربع` },
-                  { label: "نوع تخت", value: room.bedType },
-                  { label: "چشم‌انداز", value: room.view },
-                  { label: "طبقه", value: `طبقه ${toFa(room.floor)} — اتاق ${toFa(room.roomNumber)}` },
-                  { label: "ساعت ورود", value: `از ${settings.checkInTime}` },
-                  { label: "ساعت خروج", value: `تا ${settings.checkOutTime}` },
-                ].map((item) => (
-                  <div key={item.label} className="rounded-xl bg-cream-100/60 px-3 py-2">
-                    <p className="text-[10px] text-forest-800/50">{item.label}</p>
-                    <p className="text-xs font-bold text-forest-950">{item.value}</p>
+          <section>
+            <h2 className="mb-4 text-xl font-extrabold text-slate-900">درباره این اتاق</h2>
+            <div className="space-y-4 leading-8 text-slate-600">
+              {room.description.split("\n").filter(Boolean).map((p, i) => <p key={i}>{p}</p>)}
+            </div>
+          </section>
+
+          {room.features.length > 0 && (
+            <section>
+              <h2 className="mb-4 text-xl font-extrabold text-slate-900">امکانات اتاق</h2>
+              <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+                {room.features.map((f) => (
+                  <div key={f} className="flex items-center gap-2 rounded-xl bg-white px-3 py-2.5 text-sm text-slate-700 ring-1 ring-slate-200/70">
+                    <CheckCircle2 className="h-4 w-4 shrink-0 text-brand-600" /> {f}
                   </div>
                 ))}
               </div>
-            </article>
+            </section>
+          )}
 
-            {room.videoUrl ? (
-              <div className="panel overflow-hidden">
-                <div className="flex items-center justify-between px-5 py-4">
-                  <h2 className="text-base font-extrabold text-forest-950">🎥 تور ویدیویی اتاق</h2>
-                  <span className="badge-plain bg-forest-50 text-[10px] text-forest-700">ویدیو اختصاصی</span>
-                </div>
-                <video
-                  key={room.videoUrl}
-                  className="aspect-video w-full bg-forest-950 object-cover"
-                  src={room.videoUrl}
-                  poster={room.coverImage}
-                  controls
-                  playsInline
-                  preload="metadata"
-                />
-              </div>
-            ) : null}
-
-            {room.addons.length > 0 ? (
-              <div className="panel space-y-3 p-6">
-                <div className="flex items-center justify-between">
-                  <h2 className="text-base font-extrabold text-forest-950">گزینه‌های اضافه قابل انتخاب</h2>
-                  <span className="badge badge-sm badge-warning text-[9px]">با هزینه اضافه</span>
-                </div>
-                <div className="grid gap-2 sm:grid-cols-2">
-                  {room.addons.map((addon) => (
-                    <div key={addon.name} className="flex items-center justify-between gap-2 rounded-xl border border-cream-200 bg-cream-50 px-3 py-2">
-                      <div>
-                        <p className="text-[11px] font-bold text-forest-950">{addon.name}</p>
-                        {addon.description ? <p className="text-[9px] text-forest-800/50">{addon.description}</p> : null}
-                      </div>
-                      <span className="text-[10px] font-black text-gold-600">{formatMoney(addon.price)}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ) : null}
-
-            <div className="panel space-y-4 p-6">
-              <h2 className="text-base font-extrabold text-forest-950">امکانات اتاق</h2>
-              <div className="grid gap-2 sm:grid-cols-2">
-                {room.amenities.map((amenity) => (
-                  <div key={amenity} className="flex items-center gap-2 rounded-xl border border-cream-200 px-3 py-2 text-xs text-forest-800/80">
-                    <span className="flex h-5 w-5 items-center justify-center rounded-full bg-forest-50 text-[10px] text-forest-700">✓</span>
-                    {amenity}
+          {room.options.length > 0 && (
+            <section>
+              <h2 className="mb-4 text-xl font-extrabold">خدمات و وعده‌های غذایی</h2>
+              <div className="grid gap-3 sm:grid-cols-2">
+                {room.options.map((o) => (
+                  <div key={o.id} className="flex items-center justify-between rounded-box bg-base-100 px-4 py-3 text-sm ring-1 ring-base-300">
+                    <span className="font-medium">{o.title}</span>
+                    {o.included ? <span className="badge badge-success badge-soft">رایگان</span> : <span className="text-base-content/70">{formatPrice(o.price)} تومان <span className="text-xs text-base-content/50">/ {optionUnitLabel[o.unit]}</span></span>}
                   </div>
                 ))}
               </div>
+            </section>
+          )}
+
+          {room.videoUrl && (
+            <section id="video" className="scroll-mt-28">
+              <h2 className="mb-4 text-xl font-extrabold text-slate-900">ویدیوی معرفی اتاق</h2>
+              <VideoPlayer url={room.videoUrl} poster={room.images[0]} />
+            </section>
+          )}
+
+          {booking.hotelRules.length > 0 && (
+            <section className="rounded-3xl border border-amber-200 bg-amber-50/60 p-6">
+              <h2 className="mb-4 text-lg font-extrabold text-amber-900">{booking.hotelRulesTitle}</h2>
+              <ul className="space-y-2 text-sm leading-7 text-amber-900/80">
+                {booking.hotelRules.map((r) => (
+                  <li key={r} className="flex gap-2"><span className="mt-2.5 h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" />{r}</li>
+                ))}
+              </ul>
+            </section>
+          )}
+
+          <section className="grid gap-3 rounded-3xl bg-brand-50 p-6 text-sm text-brand-900 md:grid-cols-3">
+            <div className="flex items-center gap-2"><Clock className="h-4 w-4" /> ورود از ساعت {faNum(s.checkInTime)}</div>
+            <div className="flex items-center gap-2"><Clock className="h-4 w-4" /> خروج تا ساعت {faNum(s.checkOutTime)}</div>
+            <div className="flex items-center gap-2"><CheckCircle2 className="h-4 w-4" /> صبحانه رایگان</div>
+          </section>
+        </div>
+
+        <aside className="lg:sticky lg:top-28 lg:self-start">
+          <div className="card card-border bg-base-100 shadow-sm overflow-hidden block">
+            <div className="bg-gradient-to-l from-brand-800 to-brand-950 p-5 text-white">
+              <div className="text-sm text-white/70">قیمت پایه هر شب (روزهای تعطیل و پیک متفاوت است)</div>
+              <div className="mt-1 text-3xl font-black">{formatPrice(room.pricePerNight)} <span className="text-base font-medium text-white/70">تومان</span></div>
+            </div>
+            <div className="p-5">
+              <BookingForm
+                compact
+                depositPercent={Number(s.depositPercent) || 30}
+                defaultKind="room"
+                defaultItemId={room.id}
+                rooms={allRooms.map(toBookRoom)}
+                services={bookable.map(toBookService)}
+                hotelRules={booking.hotelRules}
+                requireRulesAccept={booking.requireRulesAccept}
+                initial={{ checkIn: sp.checkIn, checkOut: sp.checkOut, guests: Number(sp.guests) || undefined }}
+              />
             </div>
           </div>
+        </aside>
+      </div>
 
-          <aside className="space-y-4 lg:sticky lg:top-24">
-            <div className="panel space-y-4 overflow-hidden p-5">
-              <div className="border-b border-cream-100 pb-3">
-                <p className="text-[9px] font-bold uppercase tracking-[0.18em] text-gold-600">نرخ اقامت</p>
-                <p className="mt-1 text-xl font-black text-forest-950">{formatMoney(room.pricePerNight)}</p>
-                <p className="mt-1 text-[11px] text-gold-700">
-                  پیش‌پرداخت {toFa(room.prepaymentPercent)}٪ = {formatMoney(prepayment)}
-                </p>
-                <p className="mt-1 text-[10px] leading-5 text-forest-800/55">
-                  ظرفیت استاندارد {toFa(room.capacity)} نفر · هر نفر اضافه تا {toFa(room.maxCapacity)} نفر مبلغ{" "}
-                  {formatMoney(room.extraGuestFee)} دارد.
-                </p>
-              </div>
-              <div className="space-y-1.5 rounded-xl bg-cream-100 p-3 text-[11px] text-forest-800/70">
-                <p>✓ نرخ شامل صبحانه بوفه برای همه مهمانان</p>
-                <p>✓ مالیات و عوارض در نرخ لحاظ شده است</p>
-                <p>✓ رزرو قطعی پس از پرداخت پیش‌پرداخت و تأیید پذیرش</p>
-              </div>
-              <Link href={bookingHref} className="btn btn-primary w-full">
-                درخواست رزرو این اتاق
-              </Link>
-              <a href={phoneHref(settings.phone)} className="btn btn-ghost w-full text-xs">
-                ☎ تماس با پذیرش: {settings.phone}
-              </a>
-              <p className="text-center text-[10px] leading-5 text-forest-800/45">
-                کد رزرو تنها پس از تأیید پذیرش صادر می‌شود. بدون کد رزرو، اقامت قطعی نیست.
-              </p>
-            </div>
-
-            <div className="rounded-xl border border-gold-200 bg-gradient-to-br from-gold-50 to-white p-4 text-[11px] leading-6 text-gold-700">
-              <p className="font-bold uppercase tracking-wide">پیشنهاد کاج</p>
-              <p className="mt-1">
-                با رزرو دو شب یا بیشتر، ۱۰٪ تخفیف منوی کافه‑رستوران کاج برای شما در نظر گرفته می‌شود. برای هماهنگی با پذیرش تماس بگیرید.
-              </p>
-            </div>
-          </aside>
-        </div>
-      </section>
-
-      {suggestions.length ? (
-        <section className="py-14">
-          <div className="container-x space-y-6">
-            <div className="flex items-end justify-between gap-3">
-              <div>
-                <h2 className="text-xl font-extrabold text-forest-950">اتاق‌های مشابه</h2>
-                <p className="mt-1 text-xs text-forest-800/60">گزینه‌های دیگری که ممکن است بپسندید</p>
-              </div>
-              <Link href="/rooms" className="btn btn-ghost btn-sm">
-                همه اتاق‌ها
-              </Link>
-            </div>
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {suggestions.map((item) => (
-                <RoomCard key={item.id} room={item} compact />
-              ))}
-            </div>
+      {similar.length > 0 && (
+        <section className="mt-20">
+          <h2 className="mb-6 text-2xl font-black text-slate-900">اتاق‌های مشابه</h2>
+          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+            {similar.map((r) => <RoomCard key={r.id} room={r} />)}
           </div>
         </section>
-      ) : null}
-    </>
+      )}
+    </div>
   );
 }

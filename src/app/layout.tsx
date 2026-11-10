@@ -1,42 +1,25 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
+import "vazirmatn/Vazirmatn-Variable-font-face.css";
+import "leaflet/dist/leaflet.css";
 import "./globals.css";
+import { getSettingsSafe, paletteOf } from "@/lib/appearance";
 
-export const metadata: Metadata = {
-  title: {
-    default: "هتل کاج | اقامت چهارستاره در شیراز",
-    template: "%s | هتل کاج",
-  },
-  description:
-    "هتل چهارستاره کاج در قلب شیراز؛ سوئیت‌های آرام، اسپا و سلامتی، کافه‑رستوران کاج و رزرو آنلاین با پیش‌پرداخت امن.",
-  keywords: [
-    "هتل کاج",
-    "هتل شیراز",
-    "هتل چهار ستاره",
-    "کافه رستوران",
-    "رزرو هتل شیراز",
-    "اقامتگاه بوتیک",
-  ],
-  openGraph: {
-    title: "هتل کاج",
-    description: "اقامت آرام در شیراز، با کافه‑رستوران کاج",
-    type: "website",
-    locale: "fa_IR",
-  },
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const s = await getSettingsSafe();
+  return {
+    title: { default: `${s.hotelName}${s.city ? ` ${s.city}` : ""} | ${s.tagline}`, template: `%s | ${s.hotelName}` },
+    description: s.seoDescription,
+  };
+}
 
-export default function RootLayout({ children }: { children: ReactNode }) {
+export const viewport: Viewport = { themeColor: "#1c2f52", width: "device-width", initialScale: 1, viewportFit: "cover" };
+
+export default async function RootLayout({ children }: { children: ReactNode }) {
+  const s = await getSettingsSafe();
   return (
-    <html lang="fa" dir="rtl" data-theme="atelier">
-      <head>
-        <link rel="preload" href="/fonts/vazirmatn-arabic-wght-normal.woff2" as="font" type="font/woff2" crossOrigin="anonymous" />
-        <link rel="preconnect" href="https://images.pexels.com" />
-        <link rel="dns-prefetch" href="https://images.pexels.com" />
-        <meta name="theme-color" content="#0b3b33" />
-      </head>
-      <body className="min-h-screen bg-cream-50 text-forest-950 antialiased">
-        {children}
-      </body>
+    <html lang="fa" dir="rtl" data-theme={paletteOf(s)}>
+      <body className="bg-base-200 font-sans text-base-content antialiased">{children}</body>
     </html>
   );
 }

@@ -1,110 +1,51 @@
-import type { Metadata } from "next";
-import Link from "next/link";
-import MapPanel from "@/components/site/MapPanel";
-import Reveal from "@/components/site/Reveal";
-import { PageHero, SectionHeading } from "@/components/site/ui";
-import { getAttractions, getSettings } from "@/lib/data";
-import { toFa } from "@/lib/format";
-import SmartImage from "@/components/site/SmartImage";
+import { notFound } from "next/navigation";
+import { asc } from "drizzle-orm";
+import { db } from "@/db";
+import { attractions } from "@/db/schema";
+import { getSettings } from "@/lib/data";
+import { PageHero, AttractionCard, EmptyState, SectionTitle } from "@/components/site/ui";
+import { MapView } from "@/components/map-view";
+import { faNum } from "@/lib/utils";
 
-export const dynamic = "force-dynamic";
-
-export const metadata: Metadata = {
-  title: "جاذبه‌های گردشگری اطراف",
-  description: "پارک ملی گلستان، آبشار لوه، برج قابوس، تالاب گمیشان و جزیره آشوراده؛ جاذبه‌های نزدیک هتل کاج.",
-};
+export const metadata = { title: "جاذبه‌های گردشگری اطراف" };
 
 export default async function AttractionsPage() {
-  const [attractions, settings] = await Promise.all([getAttractions(), getSettings()]);
-  const categories = Array.from(new Set(attractions.map((item) => item.category)));
+  const s = await getSettings();
+  if (s.moduleAttractions !== "1") notFound();
+  const list = await db.select().from(attractions).orderBy(asc(attractions.sortOrder));
+  const lat = Number(s.lat);
+  const lng = Number(s.lng);
+  const cats = Array.from(new Set(list.map((a) => a.category)));
 
   return (
     <>
-      <PageHero
-        kicker="گلستان‌گردی"
-        title="اطراف کاج پر از ماجراست"
-        description="هتل کاج دروازه ورود به جاذبه‌های طبیعی و تاریخی گلستان است. تیم پذیرش می‌تواند تور یک‌روزه، راهنمای محلی و خودروی اختصاصی برای شما ترتیب دهد."
-        image={attractions[0]?.imageUrl ?? settings.heroImage}
-      >
-        <div className="mt-2 flex flex-wrap gap-2">
-          {categories.map((category) => (
-            <span key={category} className="neu-pill">
-              {category}
-            </span>
+      <PageHero eyebrow={`${faNum(list.length)} مقصد دیدنی`} title="جاذبه‌های گردشگری اطراف" subtitle={`${s.hotelName} بهترین نقطه شروع برای کشف جاذبه‌های ${s.city || "اطراف"} است.`} image="https://images.pexels.com/photos/4146757/pexels-photo-4146757.jpeg?auto=compress&cs=tinysrgb&fit=crop&h=800&w=1280" />
+      <section className="mx-auto max-w-7xl px-6 py-14">
+        <SectionTitle eyebrow="نقشه تعاملی" title="جاذبه‌ها روی نقشه" desc="روی هر نشانگر کلیک کنید تا نام و فاصله آن تا هتل را ببینید." />
+        <MapView
+          center={{ lat, lng }}
+          fitBounds
+          zoom={10}
+          className="h-[480px] shadow-xl ring-1 ring-slate-200"
+          markers={[
+            { lat, lng, title: s.hotelName, subtitle: "محل اقامت شما", kind: "hotel" },
+            ...list.filter((a) => a.lat && a.lng).map((a) => ({ lat: a.lat, lng: a.lng, title: a.name, subtitle: `${faNum(a.distanceKm)} کیلومتر · ${a.travelTime}` })),
+          ]}
+        />
+        <div className="mt-6 flex flex-wrap justify-center gap-2">
+          {cats.map((c) => (
+            <span key={c} className="rounded-full bg-white px-4 py-1.5 text-sm text-slate-600 ring-1 ring-slate-200">{c} · {faNum(list.filter((a) => a.category === c).length)}</span>
           ))}
         </div>
-      </PageHero>
-
-      <section className="container-x py-14">
-        <div className="grid gap-5 lg:grid-cols-[1fr_1.1fr] lg:items-start">
-          <div className="space-y-4">
-            <SectionHeading
-              align="start"
-              kicker="نقشه گردشگری"
-              title="موقعیت جاذبه‌ها نسبت به هتل"
-              description="فاصله‌ها با خودروی شخصی محاسبه شده است. برای مسیریابی روی دکمه هر جاذبه بزنید."
-            />
-            <MapPanel settings={{ mapLat: settings.mapLat, mapLng: settings.mapLng, mapAddress: settings.mapAddress, address: settings.address }} compact />
-            <div className="rounded-2xl border border-gold-200 bg-gold-50 p-4 text-[11px] leading-6 text-gold-700">
-              <p className="font-bold">🚐 تور یک‌روزه کاج</p>
-              <p className="mt-1">
-                تور بازدید از پارک ملی گلستان و آبشار لوه، هر روز صبح با راهنمای محلی و ناهار محلی برگزار می‌شود. برای
-                رزرو با پذیرش تماس بگیرید یا در فرم تماس درخواست خود را ثبت کنید.
-              </p>
-              <Link href="/contact" className="mt-2 inline-block font-bold underline underline-offset-4">
-                درخواست تور
-              </Link>
-            </div>
-          </div>
-
-          <div className="space-y-3">
-            {attractions.map((attraction, index) => (
-              <Reveal key={attraction.id} delay={index * 40}>
-                <article className="group flex gap-3 overflow-hidden glass rounded-2xl p-2.5 transition hover:border-white/90">
-                  <SmartImage
-                    src={attraction.imageUrl}
-                    alt={attraction.title}
-                    loading="lazy"
-                    className="h-24 w-28 shrink-0 rounded-xl object-cover transition duration-500 group-hover:scale-[1.02]"
-                  />
-                  <div className="flex flex-1 flex-col gap-1 py-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <h3 className="text-sm font-extrabold text-forest-950">{attraction.title}</h3>
-                      <span className="badge-plain bg-cream-100 text-[10px] text-forest-800/70">{attraction.category}</span>
-                    </div>
-                    <p className="line-clamp-2 text-[11px] leading-5 text-forest-800/60">{attraction.description}</p>
-                    <div className="mt-auto flex flex-wrap items-center justify-between gap-2 text-[10px]">
-                      <span className="text-forest-800/55">📍 {attraction.location} · {toFa(attraction.distanceKm)} کیلومتر</span>
-                      {attraction.mapUrl ? (
-                        <a
-                          href={attraction.mapUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="font-bold text-forest-900 underline-offset-4 hover:text-gold-600 hover:underline"
-                        >
-                          مسیریابی ←
-                        </a>
-                      ) : null}
-                    </div>
-                  </div>
-                </article>
-              </Reveal>
-            ))}
-          </div>
-        </div>
       </section>
-
-      <section className="container-x py-10">
-        <div className="neu-raised flex flex-col items-center gap-3 rounded-3xl p-6 text-center sm:p-8">
-          <span className="neu-pill neu-pill-accent">اقامت خود را به یک سفر کامل تبدیل کنید</span>
-          <h2 className="text-xl font-black text-forest-950">دو شب اقامت، یک روز گشت شیراز</h2>
-          <p className="max-w-xl text-[11px] leading-6 text-forest-800/60">
-            با رزرو اتاق در کاج، امکان استفاده از تور یک‌روزه پارک ملی گلستان با ۱۵٪ تخفیف برای مهمانان هتل فراهم است.
-          </p>
-          <Link href="/booking" className="btn btn-gold btn-sm mt-1">
-            رزرو اقامت
-          </Link>
-        </div>
+      <section className="mx-auto max-w-7xl px-6 pb-10">
+        {list.length === 0 ? (
+          <EmptyState title="هنوز جاذبه‌ای ثبت نشده است" />
+        ) : (
+          <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+            {list.map((a) => <AttractionCard key={a.id} a={a} />)}
+          </div>
+        )}
       </section>
     </>
   );

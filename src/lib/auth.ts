@@ -1,109 +1,94 @@
-import { randomBytes, randomInt, scryptSync, timingSafeEqual } from "node:crypto";
+import { cache } from "react";
 import { cookies } from "next/headers";
-import { and, eq, gt, lt } from "drizzle-orm";
+import { redirect } from "next/navigation";
+import { createHash, randomBytes, scryptSync, timingSafeEqual } from "crypto";
+import { and, eq, gt, lt, ne } from "drizzle-orm";
 import { db } from "@/db";
 import { admins, sessions } from "@/db/schema";
+import { isHttpsRequest } from "./security";
 
-export const SESSION_COOKIE = "atalar_session";
-const SESSION_DAYS = 30;
+const COOKIE = "atalar_session";
+const MAX_AGE_SEC = 30 * 86400;
 
 export function hashPassword(password: string): string {
   const salt = randomBytes(16).toString("hex");
-  const derived = scryptSync(password, salt, 64).toString("hex");
-  return `${salt}:${derived}`;
+  const hash = scryptSync(password, salt, 64).toString("hex");
+  return `${salt}:${hash}`;
 }
 
 export function verifyPassword(password: string, stored: string): boolean {
   const [salt, hash] = stored.split(":");
   if (!salt || !hash) return false;
-  try {
-    const derived = scryptSync(password, salt, 64);
-    const expected = Buffer.from(hash, "hex");
-    if (derived.length !== expected.length) return false;
-    return timingSafeEqual(derived, expected);
-  } catch {
-    return false;
-  }
+  const candidate = scryptSync(password, salt, 64);
+  const expected = Buffer.from(hash, "hex");
+  return expected.length === candidate.length && timingSafeEqual(candidate, expected);
 }
 
-export type SessionAdmin = {
-  id: number;
-  name: string;
-  email: string;
-  role: string;
-};
+/** Constant-time-ish dummy check so missing accounts take as long as wrong passwords. */
+const DUMMY_HASH = hashPassword(randomBytes(8).toString("hex"));
+export function dummyVerify() {
+  verifyPassword("dummy-password", DUMMY_HASH);
+}
 
-export async function createSession(adminId: number): Promise<string> {
-  const token = randomBytes(32).toString("hex");
-  const expiresAt = new Date(Date.now() + SESSION_DAYS * 24 * 60 * 60 * 1000);
-  // House-keeping: drop this admin's expired sessions so the table stays small.
-  await db.delete(sessions).where(and(eq(sessions.adminId, adminId), lt(sessions.expiresAt, new Date())));
-  await db.insert(sessions).values({ token, adminId, expiresAt });
+/** Only a SHA-256 hash of the session token is stored in the database. */
+function tokenHash(token: string) {
+  return createHash("sha256").update(token).digest("hex");
+}
+
+/**
+ * Cookie options.
+ * - HTTPS: SameSite=None + Secure + Partitioned so the session also survives a
+ *   refresh when the panel is opened inside an iframe/preview (a Lax cookie is
+ *   dropped by the browser there, which logged the admin out after refresh).
+ * - HTTP: SameSite=Lax without Secure (a Secure cookie is rejected over HTTP).
+ */
+async function cookieOptions() {
+  const https = await isHttpsRequest();
+  return https
+    ? ({ httpOnly: true, secure: true, sameSite: "none", partitioned: true, path: "/", maxAge: MAX_AGE_SEC } as const)
+    : ({ httpOnly: true, secure: false, sameSite: "lax", path: "/", maxAge: MAX_AGE_SEC } as const);
+}
+
+export async function createSession(adminId: number) {
+  const token = randomBytes(32).toString("base64url");
+  const expiresAt = new Date(Date.now() + MAX_AGE_SEC * 1000);
+  await db.delete(sessions).where(lt(sessions.expiresAt, new Date()));
+  await db.insert(sessions).values({ id: tokenHash(token), adminId, expiresAt });
   const store = await cookies();
-  store.set(SESSION_COOKIE, token, {
-    httpOnly: true,
-    sameSite: "lax",
-    // Secure cookies are the production default. Set SESSION_COOKIE_SECURE=false
-    // only for a deliberately HTTP-only deployment; the browser sees the public URL.
-    secure: process.env.SESSION_COOKIE_SECURE === "true" || (process.env.NODE_ENV === "production" && process.env.SESSION_COOKIE_SECURE !== "false"),
-    path: "/",
-    maxAge: SESSION_DAYS * 24 * 60 * 60,
-  });
-  return token;
+  store.set(COOKIE, token, { ...(await cookieOptions()), expires: expiresAt });
 }
 
-export async function destroySession(): Promise<void> {
+export async function destroySession() {
   const store = await cookies();
-  const token = store.get(SESSION_COOKIE)?.value;
-  if (token) {
-    try {
-      await db.delete(sessions).where(eq(sessions.token, token));
-    } catch {
-      // table might not exist yet during bootstrap
-    }
-  }
-  store.delete(SESSION_COOKIE);
+  const token = store.get(COOKIE)?.value;
+  if (token) await db.delete(sessions).where(eq(sessions.id, tokenHash(token)));
+  store.set(COOKIE, "", { ...(await cookieOptions()), maxAge: 0 });
+  store.delete(COOKIE);
 }
 
-export async function getCurrentAdmin(): Promise<SessionAdmin | null> {
-  try {
-    const store = await cookies();
-    const token = store.get(SESSION_COOKIE)?.value;
-    if (!token) return null;
-    const rows = await db
-      .select({
-        id: admins.id,
-        name: admins.name,
-        email: admins.email,
-        role: admins.role,
-      })
-      .from(sessions)
-      .innerJoin(admins, eq(sessions.adminId, admins.id))
-      .where(and(eq(sessions.token, token), gt(sessions.expiresAt, new Date())))
-      .limit(1);
-    if (!rows[0]) return null;
-    // Sliding expiration: keep active admins signed in across refreshes.
-    const renewAfter = new Date(Date.now() + (SESSION_DAYS - 5) * 24 * 60 * 60 * 1000);
-    try {
-      await db
-        .update(sessions)
-        .set({ expiresAt: new Date(Date.now() + SESSION_DAYS * 24 * 60 * 60 * 1000) })
-        .where(and(eq(sessions.token, token), lt(sessions.expiresAt, renewAfter)));
-    } catch {
-      // Non-fatal: the session is still valid for the current request.
-    }
-    return rows[0];
-  } catch {
-    return null;
-  }
+/** Revoke every other session of this admin (used after password change). */
+export async function revokeOtherSessions(adminId: number) {
+  const store = await cookies();
+  const token = store.get(COOKIE)?.value;
+  const current = token ? tokenHash(token) : "";
+  await db.delete(sessions).where(and(eq(sessions.adminId, adminId), ne(sessions.id, current)));
 }
 
-export function generateRoomBookingCode(): string {
-  return `ATL-${randomInt(1000, 9999)}`;
-}
+export const getCurrentAdmin = cache(async () => {
+  const store = await cookies();
+  const token = store.get(COOKIE)?.value;
+  if (!token || token.length < 20 || token.length > 200) return null;
+  const rows = await db
+    .select({ id: admins.id, name: admins.name, email: admins.email })
+    .from(sessions)
+    .innerJoin(admins, eq(admins.id, sessions.adminId))
+    .where(and(eq(sessions.id, tokenHash(token)), gt(sessions.expiresAt, new Date())))
+    .limit(1);
+  return rows[0] ?? null;
+});
 
-export function generateTrackingCode(): string {
-  // This code is a bearer secret for looking up, paying, and cancelling a
-  // booking. Use 128 random bits; the short reservation code is not an auth token.
-  return `TRK-${randomBytes(16).toString("hex").toUpperCase()}`;
+export async function requireAdmin() {
+  const admin = await getCurrentAdmin();
+  if (!admin) redirect("/admin/login");
+  return admin;
 }

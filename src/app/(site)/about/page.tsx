@@ -1,158 +1,86 @@
-import type { Metadata } from "next";
+import { Img } from "@/components/img";
 import Link from "next/link";
-import MapPanel from "@/components/site/MapPanel";
-import Reveal from "@/components/site/Reveal";
-import { PageHero, SectionHeading } from "@/components/site/ui";
-import { getRooms, getSettings, getTestimonials } from "@/lib/data";
-import { ABOUT_TIMELINE, ABOUT_VALUES } from "@/lib/page-content";
-import { toFa } from "@/lib/format";
-import { Stars } from "@/components/site/ui";
-import SmartImage from "@/components/site/SmartImage";
+import { eq, sql } from "drizzle-orm";
+import { Heart, Leaf, ShieldCheck, Users, Award, CalendarCheck } from "lucide-react";
+import { db } from "@/db";
+import { reservations, rooms, testimonials } from "@/db/schema";
+import { getSettings } from "@/lib/data";
+import { PageHero, SectionTitle } from "@/components/site/ui";
+import { faNum } from "@/lib/utils";
 
-export const dynamic = "force-dynamic";
-
-export const metadata: Metadata = {
-  title: "درباره ما",
-  description: "داستان هتل کاج، ارزش‌های ما و کافه‑رستورانی که میزبان مهمانان است.",
-};
+export const metadata = { title: "درباره ما" };
 
 export default async function AboutPage() {
-  const [settings, rooms, testimonials] = await Promise.all([getSettings(), getRooms(), getTestimonials()]);
-  const averageRating =
-    testimonials.length > 0
-      ? (testimonials.reduce((sum, item) => sum + item.rating, 0) / testimonials.length).toFixed(1)
-      : "۵";
+  const s = await getSettings();
+  const [[rc], [gc], [tc]] = await Promise.all([
+    db.select({ c: sql<number>`count(*)::int` }).from(rooms),
+    db.select({ c: sql<number>`count(*)::int` }).from(reservations),
+    db.select({ c: sql<number>`coalesce(round(avg(rating)::numeric,1),5)::float` }).from(testimonials).where(eq(testimonials.isApproved, true)),
+  ]);
+  const years = Math.max(1, 1404 - Number(s.foundedYear || 1398));
 
   return (
     <>
-      <PageHero
-        kicker="درباره ما"
-        title={settings.aboutTitle}
-        description={settings.tagline}
-        image={settings.aboutImage}
-      />
-
-      <section className="container-x py-14">
-        <div className="grid items-center gap-8 lg:grid-cols-2">
-          <Reveal className="relative">
-            <SmartImage
-              src={settings.aboutImage}
-              alt="فضای داخلی هتل کاج"
-              className="aspect-[4/3] w-full rounded-[2rem] object-cover shadow-card"
-              loading="lazy"
-            />
-            <div className="glass-strong absolute -bottom-5 left-4 grid grid-cols-3 gap-2 rounded-2xl p-3 sm:left-8">
-              {[
-                { value: toFa(rooms.length), label: "اتاق" },
-                { value: "۴٫۸", label: "امتیاز" },
-                { value: "۸", label: "سال تجربه" },
-              ].map((stat) => (
-                <div key={stat.label} className="px-2 text-center">
-                  <p className="text-base font-black text-forest-900">{stat.value}</p>
-                  <p className="text-[9px] text-forest-800/55">{stat.label}</p>
-                </div>
-              ))}
-            </div>
-          </Reveal>
-          <Reveal delay={100} className="space-y-4">
-            <SectionHeading align="start" kicker="داستان کاج" title="از یک خانه باغ تا هتل خانواده‌ها" />
-            <p className="text-sm leading-8 text-forest-800/70">{settings.aboutText}</p>
-            <p className="text-sm leading-8 text-forest-800/70">{settings.storyText}</p>
-            <div className="flex flex-wrap gap-2 pt-1">
-              <Link href="/rooms" className="btn btn-primary">
-                مشاهده اتاق‌ها
-              </Link>
-              <Link href="/contact" className="btn btn-ghost">
-                گفتگو با پذیرش
-              </Link>
-            </div>
-          </Reveal>
+      <PageHero eyebrow="درباره ما" title={s.aboutTitle} subtitle={s.tagline} image="https://images.pexels.com/photos/40317538/pexels-photo-40317538.jpeg?auto=compress&cs=tinysrgb&fit=crop&h=800&w=1280" />
+      <section className="mx-auto grid max-w-7xl items-center gap-12 px-6 py-20 lg:grid-cols-2">
+        <div className="relative">
+          <div className="grid grid-cols-2 gap-4">
+            <Img src="/images/hero.jpg" alt="" className="col-span-2 aspect-[16/9] w-full rounded-3xl object-cover shadow-xl" />
+            <Img src="/images/pool.jpg" alt="" className="aspect-square w-full rounded-3xl object-cover" />
+            <Img src="https://images.pexels.com/photos/28999503/pexels-photo-28999503.jpeg?auto=compress&cs=tinysrgb&fit=crop&h=600&w=600" alt="" className="aspect-square w-full rounded-3xl object-cover" />
+          </div>
+          <div className="absolute -bottom-6 right-6 rounded-3xl bg-gold-400 p-5 text-brand-950 shadow-xl">
+            <div className="text-4xl font-black">{faNum(years)}+</div>
+            <div className="text-sm font-semibold">سال مهمان‌نوازی</div>
+          </div>
         </div>
-      </section>
-
-      <section className="py-14">
-        <div className="container-x space-y-8">
-          <SectionHeading kicker="مسیر ما" title="کاج در گذر زمان" description="هر سال یک قدم به تجربه‌ای بهتر برای مهمانان نزدیک‌تر شدیم." />
-          <div className="relative mx-auto max-w-3xl">
-            <span className="absolute right-[11px] top-2 h-[calc(100%-1rem)] w-px bg-cream-300" aria-hidden="true" />
-            <div className="space-y-4">
-              {ABOUT_TIMELINE.map((item, index) => (
-                <Reveal key={item.year} delay={index * 70}>
-                  <div className="relative pr-11">
-                    <span className="absolute right-0 top-4 flex h-6 w-6 items-center justify-center rounded-full border-2 border-gold-400 bg-white">
-                      <span className="h-2 w-2 rounded-full bg-gold-400" />
-                    </span>
-                    <div className="rounded-2xl border border-cream-200 bg-cream-50 p-4 transition hover:border-gold-200 hover:bg-gold-50/40">
-                      <div className="flex items-center justify-between">
-                        <p className="text-xs font-black text-gold-600">{item.year}</p>
-                        <span className="text-[10px] text-forest-800/45">مرحله {toFa(index + 1)}</span>
-                      </div>
-                      <p className="mt-1 text-sm font-bold text-forest-950">{item.title}</p>
-                      <p className="mt-1 text-[11px] leading-6 text-forest-800/65">{item.text}</p>
-                    </div>
-                  </div>
-                </Reveal>
-              ))}
-            </div>
+        <div>
+          <SectionTitle eyebrow="داستان ما" title="مهمان‌نوازی اصیل، با نگاهی مدرن" center={false} />
+          <div className="-mt-6 space-y-4 text-lg leading-9 text-slate-600">
+            {s.aboutText.split("\n").filter(Boolean).map((p, i) => <p key={i}>{p}</p>)}
+          </div>
+          <div className="mt-8 grid grid-cols-3 gap-3">
+            {[
+              { v: faNum(rc.c), l: "اتاق و سوئیت" },
+              { v: `${faNum(gc.c + 1200)}+`, l: "مهمان راضی" },
+              { v: faNum(tc.c), l: "امتیاز مهمانان" },
+            ].map((x) => (
+              <div key={x.l} className="card card-border bg-base-100 shadow-sm p-4 text-center block">
+                <div className="text-2xl font-black text-brand-700">{x.v}</div>
+                <div className="mt-1 text-xs text-slate-500">{x.l}</div>
+              </div>
+            ))}
           </div>
         </div>
       </section>
 
-      <section className="container-x py-14">
-        <SectionHeading kicker="ارزش‌های ما" title="چرا مهمانان کاج را انتخاب می‌کنند" />
-        <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {ABOUT_VALUES.map((value, index) => (
-            <Reveal key={value.title} delay={index * 60}>
-              <div className="glass h-full rounded-2xl p-5">
-                <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-forest-50 text-xl">{value.icon}</span>
-                <p className="mt-3 text-sm font-extrabold text-forest-950">{value.title}</p>
-                <p className="mt-1.5 text-[11px] leading-6 text-forest-800/65">{value.text}</p>
+      <section className="bg-brand-950 py-20">
+        <div className="mx-auto max-w-7xl px-6">
+          <SectionTitle eyebrow="ارزش‌های ما" title={`آنچه ${s.hotelName} را متفاوت می‌کند`} light />
+          <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-4">
+            {[
+              { Icon: Heart, t: "مهمان‌نوازی خانوادگی", d: "با شما مثل عضوی از خانواده رفتار می‌کنیم." },
+              { Icon: ShieldCheck, t: "حریم خصوصی", d: "فضایی آرام و امن برای خانواده‌ها و مسافران کاری." },
+              { Icon: Leaf, t: "محلی و طبیعی", d: "مواد اولیه تازه و طعم‌های اصیل محلی." },
+              { Icon: Award, t: "کیفیت پایدار", d: `نظافت و نگهداری با استانداردهای هتل‌های ${["", "یک", "دو", "سه", "چهار", "پنج"][Number(s.stars)] ?? ""} ستاره.` },
+            ].map(({ Icon, t, d }) => (
+              <div key={t} className="rounded-3xl bg-white/5 p-6 ring-1 ring-white/10 transition hover:bg-white/10">
+                <Icon className="h-8 w-8 text-gold-300" />
+                <h3 className="mt-4 font-extrabold text-white">{t}</h3>
+                <p className="mt-2 text-sm leading-7 text-white/60">{d}</p>
               </div>
-            </Reveal>
-          ))}
-        </div>
-      </section>
-
-      <section className="py-12">
-        <div className="container-x grid gap-4 sm:grid-cols-3">
-          {[
-            { label: "میانگین رضایت مهمانان", value: `${toFa(averageRating)} از ۵`, icon: "⭐" },
-            { label: "بیش از ۱٬۲۰۰ مهمان", value: "از ۱۸ استان", icon: "👨‍👩‍👧" },
-            { label: "تیم میزبانی", value: "۲۸ نفر", icon: "🤝" },
-          ].map((item) => (
-            <div key={item.label} className="glass flex items-center gap-3 rounded-2xl p-4">
-              <span className="text-2xl">{item.icon}</span>
-              <div>
-                <p className="text-sm font-black text-forest-950">{item.value}</p>
-                <p className="text-[10px] text-forest-800/55">{item.label}</p>
-              </div>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      <section className="container-x py-14">
-        <div className="grid gap-6 lg:grid-cols-[1fr_1.1fr] lg:items-center">
-          <div className="space-y-4">
-            <SectionHeading align="start" kicker="ما را پیدا کنید" title="آدرس و مسیر دسترسی" description={settings.address} />
-            <div className="grid gap-2 sm:grid-cols-2">
-              <div className="glass-soft rounded-xl p-3">
-                <p className="text-[10px] text-forest-800/50">تلفن پذیرش</p>
-                <p dir="ltr" className="text-xs font-bold text-forest-950">{settings.phone}</p>
-              </div>
-              <div className="glass-soft rounded-xl p-3">
-                <p className="text-[10px] text-forest-800/50">ایمیل</p>
-                <p dir="ltr" className="text-xs font-bold text-forest-950">{settings.email}</p>
-              </div>
-            </div>
-            <div className="flex items-center gap-2 rounded-2xl border border-gold-200 bg-gold-50 p-4">
-              <Stars rating={5} />
-              <p className="text-[11px] text-gold-700">
-                امتیاز {toFa(averageRating)} از ۵ بر اساس نظرات ثبت‌شده مهمانان
-              </p>
-            </div>
+            ))}
           </div>
-          <MapPanel settings={{ mapLat: settings.mapLat, mapLng: settings.mapLng, mapAddress: settings.mapAddress, address: settings.address }} compact />
+        </div>
+      </section>
+
+      <section className="mx-auto max-w-4xl px-6 py-20 text-center">
+        <Users className="mx-auto h-10 w-10 text-brand-600" />
+        <h2 className="mt-4 text-3xl font-black text-slate-900">تیم {s.hotelName} منتظر شماست</h2>
+        <p className="mt-4 leading-8 text-slate-500">کارکنان ما به زبان‌های فارسی، ترکی آذربایجانی و انگلیسی آماده پاسخگویی هستند.</p>
+        <div className="mt-8 flex justify-center gap-3">
+          <Link href="/booking" className="btn btn-secondary px-8 h-12"><CalendarCheck className="h-4 w-4" /> رزرو</Link>
+          <Link href="/contact" className="btn px-8 h-12">تماس با ما</Link>
         </div>
       </section>
     </>

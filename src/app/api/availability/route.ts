@@ -1,147 +1,31 @@
 import { NextResponse } from "next/server";
-import { and, eq, gt, inArray, lt, sql } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { db } from "@/db";
-import { bookings } from "@/db/schema";
-import { getPoolSlots, getRoomById, getRooms, getSettings } from "@/lib/data";
-import { nightsBetween, todayISO } from "@/lib/format";
-import { clientIp, rateLimit, tooManyRequests } from "@/lib/rate-limit";
+import { rooms } from "@/db/schema";
+import { bookedRoomRanges, bookedSlots } from "@/lib/availability";
+import { roomPriceMap } from "@/lib/pricing";
+import { addDaysISO, todayISO } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
-export const runtime = "nodejs";
 
-function normalizeDate(value: string | null, fallback: string): string {
-  if (!value) return fallback;
-  const trimmed = value.trim().slice(0, 10);
-  return /^\d{4}-\d{2}-\d{2}$/.test(trimmed) ? trimmed : fallback;
-}
-
-/**
- * GET /api/availability
- * Query params: roomId?, checkIn?, checkOut?, date?, slotId?
- * Returns availability for a single room, all rooms, or pool time slots.
- */
-export async function GET(request: Request) {
-  const limited = rateLimit(`availability:${clientIp(request)}`, 120, 60 * 1000);
-  if (!limited.ok) return tooManyRequests(limited.retryAfter);
-  try {
-    const { searchParams } = new URL(request.url);
-    const checkIn = normalizeDate(searchParams.get("checkIn") ?? searchParams.get("from"), todayISO());
-    const checkOut = normalizeDate(
-      searchParams.get("checkOut") ?? searchParams.get("to"),
-      new Date(new Date(checkIn).getTime() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
-    );
-    const roomIdParam = searchParams.get("roomId");
-    const dateParam = normalizeDate(searchParams.get("date") ?? searchParams.get("checkIn"), todayISO());
-    const slotIdParam = searchParams.get("slotId");
-    const nights = nightsBetween(checkIn, checkOut);
-    if (!Number.isFinite(nights) || nights < 0 || nights > 365) {
-      return NextResponse.json({ error: "بازه اقامت معتبر نیست." }, { status: 400 });
-    }
-
-    if (roomIdParam) {
-      const roomId = Number(roomIdParam);
-      if (!Number.isFinite(roomId)) {
-        return NextResponse.json({ error: "شناسه اتاق نامعتبر است." }, { status: 400 });
-      }
-      if (nights < 1) {
-        return NextResponse.json({ error: "تاریخ خروج باید بعد از تاریخ ورود باشد." }, { status: 400 });
-      }
-      const room = await getRoomById(roomId);
-      if (!room) return NextResponse.json({ error: "اتاق یافت نشد." }, { status: 404 });
-
-      const conditions = [
-        eq(bookings.roomId, room.id),
-        inArray(bookings.status, ["awaiting_review", "confirmed"]),
-        lt(bookings.checkIn, checkOut),
-        gt(bookings.checkOut, checkIn),
-      ];
-      const conflicts = await db
-        .select({ id: bookings.id })
-        .from(bookings)
-        .where(and(...conditions))
-        .limit(5);
-
-      return NextResponse.json({
-        available: conflicts.length === 0,
-        roomId: room.id,
-        roomName: room.name,
-        checkIn,
-        checkOut,
-        nights,
-        conflictingBookings: conflicts.length,
-      });
-    }
-
-    if (slotIdParam) {
-      const [slots, settings] = await Promise.all([getPoolSlots(), getSettings()]);
-      const slot = slots.find((item) => item.id === Number(slotIdParam));
-      if (!slot) return NextResponse.json({ error: "سانس استخر یافت نشد." }, { status: 404 });
-      const sameDay = await db
-        .select({ total: sql<number>`count(*)` })
-        .from(bookings)
-        .where(
-          and(
-            eq(bookings.poolSlotId, slot.id),
-            eq(bookings.checkIn, dateParam),
-            inArray(bookings.status, ["awaiting_review", "confirmed"]),
-          ),
-        );
-      const taken = Number(sameDay[0]?.total ?? 0);
-      return NextResponse.json({
-        available: taken === 0,
-        slotId: slot.id,
-        label: slot.label,
-        price: slot.price,
-        capacity: slot.capacity,
-        extraGuestFee: slot.extraGuestFee,
-        maxCapacity: settings.poolMaxCapacity,
-        date: dateParam,
-        reservedSessions: taken,
-      });
-    }
-
-    const [rooms, slots, settings] = await Promise.all([getRooms(), getPoolSlots(), getSettings()]);
-    const activeBookings = nights
-      ? await db
-          .select({ roomId: bookings.roomId, checkIn: bookings.checkIn, checkOut: bookings.checkOut })
-          .from(bookings)
-          .where(
-            and(
-              inArray(bookings.status, ["awaiting_review", "confirmed"]),
-              lt(bookings.checkIn, checkOut),
-              gt(bookings.checkOut, checkIn),
-            ),
-          )
-      : [];
-    const busyRoomIds = new Set(activeBookings.map((item) => item.roomId).filter(Boolean));
-
+export async function GET(req: Request) {
+  const url = new URL(req.url);
+  const roomId = Number(url.searchParams.get("roomId"));
+  const serviceId = Number(url.searchParams.get("serviceId"));
+  const date = url.searchParams.get("date") ?? "";
+  if (roomId) {
+    const [room] = await db.select().from(rooms).where(eq(rooms.id, roomId));
+    if (!room) return NextResponse.json({ error: "not found" }, { status: 404 });
+    const today = todayISO();
+    const [ranges, prices] = await Promise.all([bookedRoomRanges(roomId), roomPriceMap(room, today, addDaysISO(today, 180))]);
     return NextResponse.json({
-      checkIn,
-      checkOut,
-      nights,
-      totalRooms: rooms.length,
-      availableRooms: rooms.filter((room) => !busyRoomIds.has(room.id)).length,
-      rooms: rooms.map((room) => ({
-        id: room.id,
-        name: room.name,
-        roomNumber: room.roomNumber,
-        capacity: room.capacity,
-        pricePerNight: room.pricePerNight,
-        available: !busyRoomIds.has(room.id),
-        maxGuests: room.capacity + 2,
-        extraGuestFee: settings.extraGuestFee,
-      })),
-      poolSlots: slots.map((slot) => ({
-        id: slot.id,
-        label: slot.label,
-        price: slot.price,
-        capacity: slot.capacity,
-        extraGuestFee: slot.extraGuestFee,
-        maxCapacity: settings.poolMaxCapacity,
-      })),
+      ranges,
+      prices: Object.fromEntries(prices.map((p) => [p.date, { p: p.price, k: p.kind === "normal" ? undefined : p.kind }])),
     });
-  } catch (error) {
-    console.error("[api/availability] error", error);
-    return NextResponse.json({ error: "بررسی ظرفیت انجام نشد. دوباره تلاش کنید." }, { status: 500 });
   }
+  if (serviceId && /^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    const slots = await bookedSlots(serviceId, date);
+    return NextResponse.json({ slots });
+  }
+  return NextResponse.json({ error: "bad request" }, { status: 400 });
 }

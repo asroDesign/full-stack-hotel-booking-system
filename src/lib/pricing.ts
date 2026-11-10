@@ -1,174 +1,169 @@
-import { and, asc, eq, gte, inArray, lte, sql } from "drizzle-orm";
+import { and, eq, gte, lt, lte } from "drizzle-orm";
 import { db } from "@/db";
-import { roomDailyPrices, rooms, specialDays, type Room, type RoomDailyPrice } from "@/db/schema";
+import { calendarDays, roomRates, type Room, type RoomOption, type SelectedOption } from "@/db/schema";
+import { sql } from "drizzle-orm";
+import { addDaysISO, diffDays, isoToJalali, jalaliToISO, parseISODate, todayISO } from "./utils";
 
-export type NightlyRate = { date: string; price: number; label: string };
+export type DayKind = "normal" | "holiday" | "peak";
 
-const roundPrice = (value: number) => Math.max(0, Math.round(value / 10000) * 10000);
+export const optionUnitLabel: Record<RoomOption["unit"], string> = {
+  per_night: "هر شب",
+  per_person_night: "هر نفر / هر شب",
+  per_stay: "کل اقامت",
+  per_person: "هر نفر (یک‌بار)",
+};
 
-export function dateRange(checkIn: string, checkOut: string): string[] {
-  const dates: string[] = [];
-  const start = new Date(`${checkIn}T00:00:00Z`);
-  const end = new Date(`${checkOut}T00:00:00Z`);
-  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return dates;
-  for (let cursor = new Date(start); cursor < end; cursor.setUTCDate(cursor.getUTCDate() + 1)) {
-    dates.push(cursor.toISOString().slice(0, 10));
-  }
-  return dates;
+export async function getCalendarDays(from: string, to: string) {
+  const rows = await db
+    .select()
+    .from(calendarDays)
+    .where(and(gte(calendarDays.date, from), lte(calendarDays.date, to)));
+  return new Map(rows.map((r) => [r.date, r]));
 }
 
-export async function getRoomRates(
-  room: Pick<Room, "id" | "pricePerNight">,
+export async function getRoomOverrides(roomId: number, from: string, to: string) {
+  const rows = await db
+    .select({ date: roomRates.date, price: roomRates.price })
+    .from(roomRates)
+    .where(and(eq(roomRates.roomId, roomId), gte(roomRates.date, from), lte(roomRates.date, to)));
+  return new Map(rows.map((r) => [r.date, r.price]));
+}
+
+type PriceRoom = Pick<Room, "pricePerNight" | "holidayPrice" | "peakPrice">;
+
+export function resolveNight(
+  room: PriceRoom,
+  date: string,
+  days: Map<string, { kind: "holiday" | "peak"; title: string }>,
+  overrides: Map<string, number>,
+) {
+  const d = days.get(date);
+  const kind: DayKind = d?.kind ?? "normal";
+  const override = overrides.get(date);
+  let price = room.pricePerNight;
+  let source: "base" | "holiday" | "peak" | "custom" = "base";
+  if (kind === "holiday" && room.holidayPrice > 0) {
+    price = room.holidayPrice;
+    source = "holiday";
+  } else if (kind === "peak" && room.peakPrice > 0) {
+    price = room.peakPrice;
+    source = "peak";
+  }
+  if (override !== undefined) {
+    price = override;
+    source = "custom";
+  }
+  return { date, price, kind, title: d?.title ?? "", source };
+}
+
+/** Effective nightly prices for a date range (inclusive) – used by calendars. */
+export async function roomPriceMap(room: Room, from: string, to: string) {
+  const [days, overrides] = await Promise.all([getCalendarDays(from, to), getRoomOverrides(room.id, from, to)]);
+  const out: ReturnType<typeof resolveNight>[] = [];
+  for (let d = from; d <= to; d = addDaysISO(d, 1)) out.push(resolveNight(room, d, days, overrides));
+  return out;
+}
+
+export function optionAmount(o: RoomOption, guests: number, nights: number) {
+  if (o.included) return 0;
+  switch (o.unit) {
+    case "per_night":
+      return o.price * nights;
+    case "per_person_night":
+      return o.price * guests * nights;
+    case "per_stay":
+      return o.price;
+    case "per_person":
+      return o.price * guests;
+  }
+}
+
+export type RoomQuote = {
+  nights: { date: string; price: number; kind: DayKind; title: string; source: string }[];
+  nightsCount: number;
+  roomTotal: number;
+  extraGuests: number;
+  extraGuestFee: number;
+  options: SelectedOption[];
+  optionsTotal: number;
+  total: number;
+};
+
+export async function quoteRoom(
+  room: Room,
   checkIn: string,
   checkOut: string,
-): Promise<{ nights: number; total: number; breakdown: NightlyRate[] }> {
-  const nights = dateRange(checkIn, checkOut);
-  if (nights.length === 0) return { nights: 0, total: 0, breakdown: [] };
-
-  const overrides = await db
-    .select()
-    .from(roomDailyPrices)
-    .where(
-      and(
-        eq(roomDailyPrices.roomId, room.id),
-        gte(roomDailyPrices.date, nights[0]),
-        lte(roomDailyPrices.date, nights[nights.length - 1]),
-      ),
-    );
-  const map = new Map(overrides.map((row) => [row.date, row]));
-  const breakdown = nights.map((date) => {
-    const override = map.get(date);
-    return {
-      date,
-      price: override ? override.price : room.pricePerNight,
-      label: override ? override.label : "base",
-    };
-  });
-  return { nights: nights.length, total: breakdown.reduce((sum, item) => sum + item.price, 0), breakdown };
+  guests: number,
+  optionIds: string[],
+): Promise<RoomQuote> {
+  const n = diffDays(checkIn, checkOut);
+  const lastNight = addDaysISO(checkOut, -1);
+  const [days, overrides] = await Promise.all([getCalendarDays(checkIn, lastNight), getRoomOverrides(room.id, checkIn, lastNight)]);
+  const nights = [];
+  for (let d = checkIn; d < checkOut; d = addDaysISO(d, 1)) nights.push(resolveNight(room, d, days, overrides));
+  const roomTotal = nights.reduce((s, x) => s + x.price, 0);
+  const extraGuests = Math.max(0, guests - room.capacity);
+  const extraGuestFee = extraGuests * room.extraGuestPrice * n;
+  const chosen = room.options.filter((o) => o.included || optionIds.includes(o.id));
+  const options: SelectedOption[] = chosen.map((o) => ({
+    id: o.id,
+    title: o.title,
+    unit: o.unit,
+    price: o.included ? 0 : o.price,
+    amount: optionAmount(o, guests, n),
+  }));
+  const optionsTotal = options.reduce((s, o) => s + o.amount, 0);
+  return {
+    nights,
+    nightsCount: n,
+    roomTotal,
+    extraGuests,
+    extraGuestFee,
+    options,
+    optionsTotal,
+    total: roomTotal + extraGuestFee + optionsTotal,
+  };
 }
 
-export async function getDailyPricesForRooms(roomIds: number[], from: string, to: string): Promise<RoomDailyPrice[]> {
-  if (roomIds.length === 0) return [];
-  return db
-    .select()
-    .from(roomDailyPrices)
-    .where(
-      and(inArray(roomDailyPrices.roomId, roomIds), gte(roomDailyPrices.date, from), lte(roomDailyPrices.date, to)),
-    )
-    .orderBy(asc(roomDailyPrices.date));
+/** Delete overrides older than 60 days to keep the table small. */
+export async function pruneOldRates(today: string) {
+  await db.delete(roomRates).where(lt(roomRates.date, addDaysISO(today, -60)));
 }
 
-export async function bulkSetPrices(input: {
-  roomIds: number[];
-  dates: string[];
-  price?: number | null;
-  percent?: number | null;
-  label: string;
-  note?: string;
-}): Promise<{ updated: number }> {
-  if (input.roomIds.length === 0 || input.dates.length === 0) return { updated: 0 };
-  const roomRows = await db.select().from(rooms).where(inArray(rooms.id, input.roomIds));
-  const roomMap = new Map(roomRows.map((room) => [room.id, room]));
-  const existing = await getDailyPricesForRooms(input.roomIds, input.dates[0], input.dates[input.dates.length - 1]);
-  const existingMap = new Map(existing.map((row) => [`${row.roomId}:${row.date}`, row]));
+export function officialHolidayRows(jy: number) {
+  const fixed: [number, number, string][] = [
+    [1, 1, "عید نوروز"], [1, 2, "عید نوروز"], [1, 3, "عید نوروز"], [1, 4, "عید نوروز"],
+    [1, 12, "روز جمهوری اسلامی"], [1, 13, "روز طبیعت"],
+    [3, 14, "رحلت امام خمینی"], [3, 15, "قیام ۱۵ خرداد"],
+    [11, 22, "پیروزی انقلاب اسلامی"], [12, 29, "ملی شدن صنعت نفت"],
+  ];
+  const rows = fixed.map(([m, d, title]) => ({ date: jalaliToISO(jy, m, d), kind: "holiday" as const, title }));
+  for (let d = 5; d <= 15; d++) if (d !== 12 && d !== 13) rows.push({ date: jalaliToISO(jy, 1, d), kind: "holiday" as const, title: "تعطیلات نوروز" });
+  return rows;
+}
 
-  const values: (typeof roomDailyPrices.$inferInsert)[] = [];
-  input.roomIds.forEach((roomId) => {
-    const room = roomMap.get(roomId);
-    if (!room) return;
-    input.dates.forEach((date) => {
-      const current = existingMap.get(`${roomId}:${date}`);
-      const base = current?.price ?? room.pricePerNight;
-      const nextPrice =
-        typeof input.price === "number" && input.price > 0
-          ? roundPrice(input.price)
-          : typeof input.percent === "number" && input.percent !== 0
-            ? roundPrice(base * (1 + input.percent / 100))
-            : base;
-      values.push({
-        roomId,
-        date,
-        price: nextPrice,
-        label: input.label || "custom",
-        note: input.note ?? "",
-      });
+let calendarEnsured: Promise<void> | null = null;
+/** First run: official solar holidays (this & next Jalali year) + Thursday/Friday as peak. */
+export function ensureCalendar(): Promise<void> {
+  if (!calendarEnsured) {
+    calendarEnsured = (async () => {
+      const [{ c }] = await db.select({ c: sql<number>`count(*)::int` }).from(calendarDays);
+      if (c > 0) return;
+      const { jy } = isoToJalali(todayISO());
+      const rows = new Map<string, { date: string; kind: "holiday" | "peak"; title: string }>();
+      const start = jalaliToISO(jy, 1, 1);
+      const end = addDaysISO(jalaliToISO(jy + 1, 1, 1), -1);
+      for (let d = start; d <= end; d = addDaysISO(d, 1)) {
+        const wd = parseISODate(d).getUTCDay();
+        if (wd === 4 || wd === 5) rows.set(d, { date: d, kind: "peak", title: "آخر هفته" });
+      }
+      for (const r of [...officialHolidayRows(jy), ...officialHolidayRows(jy + 1)]) rows.set(r.date, r);
+      const list = Array.from(rows.values());
+      for (let i = 0; i < list.length; i += 300) await db.insert(calendarDays).values(list.slice(i, i + 300)).onConflictDoNothing();
+    })().catch((e) => {
+      calendarEnsured = null;
+      throw e;
     });
-  });
-
-  if (values.length === 0) return { updated: 0 };
-  for (const chunk of chunkArray(values, 400)) {
-    await db
-      .insert(roomDailyPrices)
-      .values(chunk)
-      .onConflictDoUpdate({
-        target: [roomDailyPrices.roomId, roomDailyPrices.date],
-        set: {
-          price: sql`excluded.price`,
-          label: sql`excluded.label`,
-          note: sql`excluded.note`,
-        },
-      });
   }
-  return { updated: values.length };
-}
-
-
-function chunkArray<T>(items: T[], size: number): T[][] {
-  const chunks: T[][] = [];
-  for (let index = 0; index < items.length; index += size) chunks.push(items.slice(index, index + size));
-  return chunks;
-}
-
-export async function listSpecialDays(from?: string, to?: string) {
-  const filters = [];
-  if (from) filters.push(gte(specialDays.date, from));
-  if (to) filters.push(lte(specialDays.date, to));
-  return db
-    .select()
-    .from(specialDays)
-    .where(filters.length ? and(...filters) : undefined)
-    .orderBy(asc(specialDays.date));
-}
-
-export async function upsertSpecialDay(input: { date: string; title: string; kind: string; percent: number }) {
-  const existing = await db.select().from(specialDays).where(eq(specialDays.date, input.date)).limit(1);
-  if (existing[0]) {
-    const updated = await db.update(specialDays).set(input).where(eq(specialDays.id, existing[0].id)).returning();
-    return updated[0];
-  }
-  const inserted = await db.insert(specialDays).values(input).returning();
-  return inserted[0];
-}
-
-export async function deleteSpecialDay(id: number) {
-  await db.delete(specialDays).where(eq(specialDays.id, id));
-}
-
-/** Applies peak/holiday pricing to all priced rooms in a date range. */
-export async function applySpecialDaysToRooms(input: {
-  from: string;
-  to: string;
-  roomIds?: number[];
-  percent?: number;
-}): Promise<{ days: number; updated: number }> {
-  const days = await listSpecialDays(input.from, input.to);
-  if (days.length === 0) return { days: 0, updated: 0 };
-
-  const roomRows = input.roomIds?.length
-    ? await db.select().from(rooms).where(inArray(rooms.id, input.roomIds))
-    : await db.select().from(rooms).where(eq(rooms.active, true));
-
-  let updated = 0;
-  for (const day of days) {
-    const percent = input.percent ?? day.percent;
-    const result = await bulkSetPrices({
-      roomIds: roomRows.map((room) => room.id),
-      dates: [day.date],
-      percent: percent || 0,
-      label: day.kind,
-      note: day.title,
-    });
-    updated += result.updated;
-  }
-  return { days: days.length, updated };
+  return calendarEnsured;
 }

@@ -1,71 +1,37 @@
+import { sql } from "drizzle-orm";
+import { db } from "@/db";
+
 /**
- * Small in-memory sliding-window rate limiter.
- * It protects sensitive endpoints (login, bookings, contact, availability)
- * from brute-force / spam. The map is capped so it can never grow unbounded.
+ * Fixed-window rate limiter stored in PostgreSQL so it works across
+ * multiple Node processes (PM2 cluster, several containers, ...).
  */
-type Bucket = { hits: number[]; blockedUntil?: number };
-
-const buckets = new Map<string, Bucket>();
-const MAX_KEYS = 5000;
-
-function cleanup(now: number) {
-  if (buckets.size <= MAX_KEYS) return;
-  for (const [key, bucket] of buckets) {
-    const last = bucket.hits[bucket.hits.length - 1] ?? 0;
-    if (now - last > 10 * 60 * 1000) buckets.delete(key);
+export async function rateLimit(
+  key: string,
+  limit: number,
+  windowSec: number,
+): Promise<{ ok: boolean; retryAfter: number; count: number }> {
+  const res = await db.execute<{ count: number; retry: number }>(sql`
+    insert into rate_limits (key, count, reset_at)
+    values (${key}, 1, localtimestamp + make_interval(secs => ${windowSec}))
+    on conflict (key) do update set
+      count = case when rate_limits.reset_at < localtimestamp then 1 else rate_limits.count + 1 end,
+      reset_at = case when rate_limits.reset_at < localtimestamp
+        then localtimestamp + make_interval(secs => ${windowSec}) else rate_limits.reset_at end
+    returning count, greatest(0, extract(epoch from (reset_at - localtimestamp)))::int as retry
+  `);
+  if (Math.random() < 0.02) {
+    db.execute(sql`delete from rate_limits where reset_at < localtimestamp - interval '1 hour'`).catch(() => {});
   }
-  while (buckets.size > MAX_KEYS) {
-    const first = buckets.keys().next();
-    if (first.done) break;
-    buckets.delete(first.value);
-  }
+  const row = res.rows[0];
+  const count = Number(row?.count ?? 1);
+  return { ok: count <= limit, retryAfter: Number(row?.retry ?? windowSec), count };
 }
 
-export type RateLimitResult = { ok: boolean; remaining: number; retryAfter: number };
-
-export function rateLimit(key: string, limit: number, windowMs: number): RateLimitResult {
-  const now = Date.now();
-  cleanup(now);
-  const bucket = buckets.get(key) ?? { hits: [] };
-  if (bucket.blockedUntil && bucket.blockedUntil > now) {
-    return { ok: false, remaining: 0, retryAfter: Math.ceil((bucket.blockedUntil - now) / 1000) };
-  }
-  bucket.hits = bucket.hits.filter((time) => now - time < windowMs);
-  if (bucket.hits.length >= limit) {
-    bucket.blockedUntil = now + windowMs;
-    buckets.set(key, bucket);
-    return { ok: false, remaining: 0, retryAfter: Math.ceil(windowMs / 1000) };
-  }
-  bucket.hits.push(now);
-  buckets.set(key, bucket);
-  return { ok: true, remaining: Math.max(0, limit - bucket.hits.length), retryAfter: 0 };
+export async function resetRateLimit(key: string) {
+  await db.execute(sql`delete from rate_limits where key = ${key}`);
 }
 
-export function resetRateLimit(key: string) {
-  buckets.delete(key);
-}
-
-export function clientIpFromHeaders(headers: Pick<Headers, "get">): string {
-  // Trust only headers that the ingress proxy overwrites. The first XFF value
-  // is client-controlled on many stacks; use the rightmost forwarded address.
-  const trusted = headers.get("cf-connecting-ip") ?? headers.get("x-real-ip");
-  if (trusted?.trim()) return trusted.trim();
-  const forwarded = headers.get("x-forwarded-for");
-  if (!forwarded) return "local";
-  const addresses = forwarded.split(",");
-  return addresses[addresses.length - 1]?.trim() || "local";
-}
-
-export function clientIp(request: Request): string {
-  return clientIpFromHeaders(request.headers);
-}
-
-export function tooManyRequests(retryAfter: number, message = "درخواست‌های بیش از حد؛ کمی بعد دوباره تلاش کنید.") {
-  return new Response(JSON.stringify({ error: message }), {
-    status: 429,
-    headers: {
-      "Content-Type": "application/json",
-      "Retry-After": String(Math.max(1, retryAfter)),
-    },
-  });
+export function retryMessage(sec: number) {
+  const m = Math.ceil(sec / 60);
+  return m > 1 ? `تعداد درخواست‌ها بیش از حد مجاز است. لطفاً ${m} دقیقه دیگر دوباره تلاش کنید.` : "تعداد درخواست‌ها بیش از حد مجاز است. لطفاً کمی بعد دوباره تلاش کنید.";
 }
