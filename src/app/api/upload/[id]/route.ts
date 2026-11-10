@@ -9,6 +9,22 @@ import { optimizeStoredImage } from "@/lib/image-engine";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+async function readBodyLimited(req: Request, max: number): Promise<Buffer | null> {
+  if (Number(req.headers.get("content-length") ?? 0) > max) return null;
+  const reader = req.body?.getReader();
+  if (!reader) return Buffer.alloc(0);
+  const parts: Uint8Array[] = [];
+  let length = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    length += value.byteLength;
+    if (length > max) { await reader.cancel(); return null; }
+    parts.push(value);
+  }
+  return Buffer.concat(parts);
+}
+
 type Ctx = { params: Promise<{ id: string }> };
 
 async function guard(req: Request, id: string) {
@@ -35,8 +51,9 @@ export async function PUT(req: Request, ctx: Ctx) {
   const total = Math.ceil(file.size / file.chunkSize);
   if (!Number.isInteger(idx) || idx < 0 || idx >= total) return NextResponse.json({ error: "شماره قطعه نامعتبر" }, { status: 400 });
 
-  const buf = Buffer.from(await req.arrayBuffer());
   const expected = idx === total - 1 ? file.size - idx * file.chunkSize : file.chunkSize;
+  const buf = await readBodyLimited(req, expected);
+  if (!buf) return NextResponse.json({ error: "اندازه قطعه بیش از حد مجاز است" }, { status: 413 });
   if (buf.length !== expected) return NextResponse.json({ error: "اندازه قطعه نادرست است" }, { status: 400 });
   if (idx === 0 && !magicMatches(file.mime, buf.subarray(0, 16))) {
     await db.delete(mediaFiles).where(eq(mediaFiles.id, id));
@@ -55,6 +72,8 @@ export async function POST(req: Request, ctx: Ctx) {
   const g = await guard(req, id);
   if ("error" in g) return g.error;
   const { file } = g;
+  const finalizeBody = await readBodyLimited(req, 1024);
+  if (!finalizeBody) return NextResponse.json({ error: "درخواست بیش از حد بزرگ است" }, { status: 413 });
   const total = Math.ceil(file.size / file.chunkSize);
   const [{ n, bytes }] = await db
     .select({ n: sql<number>`count(*)::int`, bytes: sql<number>`coalesce(sum(octet_length(${mediaChunks.data})),0)::bigint` })

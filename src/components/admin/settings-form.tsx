@@ -6,13 +6,13 @@ import { saveSettings, changePassword } from "@/app/actions/admin";
 import { FormAlert, SubmitButton } from "./ui";
 import { MapView } from "@/components/map-view";
 
-const F = ({ name, label, s, ltr, area }: { name: keyof SiteSettings; label: string; s: SiteSettings; ltr?: boolean; area?: boolean }) => (
+const F = ({ name, label, s, ltr, area, password }: { name: keyof SiteSettings; label: string; s: SiteSettings; ltr?: boolean; area?: boolean; password?: boolean }) => (
   <div className={area ? "sm:col-span-2" : ""}>
     <label className="field-label">{label}</label>
     {area ? (
       <textarea name={name} defaultValue={s[name]} rows={5} className="textarea w-full" />
     ) : (
-      <input name={name} defaultValue={s[name]} dir={ltr ? "ltr" : undefined} className={`input w-full ${ltr ? "text-left" : ""}`} />
+      <input name={name} type={password ? "password" : "text"} autoComplete={password ? "new-password" : undefined} defaultValue={s[name]} dir={ltr ? "ltr" : undefined} className={`input w-full ${ltr ? "text-left" : ""}`} />
     )}
   </div>
 );
@@ -62,6 +62,23 @@ export function SettingsForm({ s }: { s: SiteSettings }) {
         </div>
       </section>
       <section className="card card-border bg-base-100 shadow-sm p-5 block">
+        <h3 className="mb-1 font-extrabold text-slate-900">درگاه‌های پرداخت اینترنتی</h3>
+        <p className="mb-4 text-xs leading-6 text-base-content/60">اطلاعات پذیرنده در پایگاه داده رمزگذاری می‌شود. برای ذخیرهٔ رمزها، PAYMENT_CREDENTIALS_KEY و APP_URL روی سرور لازم‌اند. فیلدهای خالی مقدار قبلی را حفظ می‌کنند.</p>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div><label className="field-label">زرین‌پال</label><select name="paymentZarinpalEnabled" defaultValue={s.paymentZarinpalEnabled} className="select w-full"><option value="0">غیرفعال</option><option value="1">فعال</option></select></div>
+          <F name="zarinpalMerchantId" label="شناسه پذیرنده زرین‌پال" s={s} ltr password />
+          <div><label className="field-label">محیط زرین‌پال</label><select name="zarinpalSandbox" defaultValue={s.zarinpalSandbox} className="select w-full"><option value="0">واقعی</option><option value="1">آزمایشی</option></select></div>
+          <div><label className="field-label">زیبال</label><select name="paymentZibalEnabled" defaultValue={s.paymentZibalEnabled} className="select w-full"><option value="0">غیرفعال</option><option value="1">فعال</option></select></div>
+          <F name="zibalMerchant" label="شناسه مرچنت زیبال" s={s} ltr password />
+          <div><label className="field-label">سامان</label><select name="paymentSamanEnabled" defaultValue={s.paymentSamanEnabled} className="select w-full"><option value="0">غیرفعال</option><option value="1">فعال</option></select></div>
+          <F name="samanTerminalId" label="شناسه پایانه سامان" s={s} ltr />
+          <div><label className="field-label">به‌پرداخت ملت</label><select name="paymentMellatEnabled" defaultValue={s.paymentMellatEnabled} className="select w-full"><option value="0">غیرفعال</option><option value="1">فعال</option></select></div>
+          <F name="mellatTerminalId" label="شناسه پایانه ملت" s={s} ltr />
+          <F name="mellatUsername" label="نام کاربری پذیرنده ملت" s={s} ltr password />
+          <F name="mellatPassword" label="رمز پذیرنده ملت" s={s} ltr password />
+        </div>
+      </section>
+      <section className="card card-border bg-base-100 shadow-sm p-5 block">
         <h3 className="mb-4 font-extrabold text-slate-900">موقعیت مکانی روی نقشه</h3>
         <div className="grid gap-4 sm:grid-cols-2">
           <div><label className="field-label">عرض جغرافیایی (lat)</label><input name="lat" value={lat} onChange={(e) => setLat(e.target.value)} dir="ltr" className="input w-full text-left" /></div>
@@ -86,7 +103,7 @@ export function PasswordForm() {
       <h3 className="font-extrabold text-slate-900">تغییر رمز عبور</h3>
       <div className="grid gap-4 sm:grid-cols-2">
         <div><label className="field-label">رمز فعلی</label><input name="current" type="password" dir="ltr" className="input w-full text-left" required /></div>
-        <div><label className="field-label">رمز جدید</label><input name="next" type="password" dir="ltr" className="input w-full text-left" required minLength={6} /></div>
+        <div><label className="field-label">رمز جدید</label><input name="next" type="password" dir="ltr" className="input w-full text-left" required minLength={12} /></div>
       </div>
       <FormAlert state={state} />
       <SubmitButton>تغییر رمز</SubmitButton>

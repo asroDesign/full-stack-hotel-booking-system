@@ -1,7 +1,8 @@
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
   admins,
+  sessions,
   rooms,
   services,
   amenities,
@@ -10,7 +11,7 @@ import {
   messages,
   testimonials,
 } from "@/db/schema";
-import { hashPassword } from "./auth";
+import { hashPassword, verifyPassword } from "./auth";
 import { createVoucher, dateToISO, ensureAccounts } from "./accounting";
 import { ensureCalendar } from "./pricing";
 import { ATALAR_VENUES, insertVenues } from "./seed-dining";
@@ -62,12 +63,32 @@ export function ensureSeeded(): Promise<void> {
 
 async function runSeed() {
   const existing = await db.select({ c: sql<number>`count(*)::int` }).from(admins);
-  if ((existing[0]?.c ?? 0) > 0) return;
+  if ((existing[0]?.c ?? 0) > 0) {
+    if (process.env.NODE_ENV === "production") {
+      const legacy = (await db.select().from(admins)).filter((admin) => verifyPassword("admin123", admin.passwordHash));
+      if (legacy.length) {
+        const password = process.env.ADMIN_PASSWORD ?? "";
+        if (password.length < 12 || password === "admin123") {
+          throw new Error("حساب مدیر هنوز از رمز پیش‌فرض admin123 استفاده می‌کند؛ ADMIN_PASSWORD قوی با حداقل ۱۲ نویسه را تنظیم کنید تا هنگام شروع سرور جایگزین شود.");
+        }
+        await db.transaction(async (tx) => {
+          for (const admin of legacy) {
+            await tx.update(admins).set({ passwordHash: hashPassword(password) }).where(eq(admins.id, admin.id));
+            await tx.delete(sessions).where(eq(sessions.adminId, admin.id));
+          }
+        });
+      }
+    }
+    return;
+  }
 
-  // Production installs: set ADMIN_EMAIL / ADMIN_PASSWORD (≥ 8 chars) before the first start.
+  // Production installs: set a valid ADMIN_EMAIL and a strong ADMIN_PASSWORD (≥ 12 chars) before the first start.
   const envEmail = (process.env.ADMIN_EMAIL ?? "").trim().toLowerCase();
   const envPassword = process.env.ADMIN_PASSWORD ?? "";
-  const useEnv = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(envEmail) && envPassword.length >= 8;
+  const useEnv = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(envEmail) && envPassword.length >= 12;
+  if (process.env.NODE_ENV === "production" && !useEnv) {
+    throw new Error("برای ساخت مدیر در محیط تولید، ADMIN_EMAIL معتبر و ADMIN_PASSWORD با حداقل ۱۲ نویسه را تنظیم کنید.");
+  }
   await db
     .insert(admins)
     .values({

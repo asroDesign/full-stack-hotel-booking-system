@@ -1,4 +1,6 @@
+import { sql } from "drizzle-orm";
 import {
+  check,
   pgTable,
   serial,
   text,
@@ -12,6 +14,7 @@ import {
   bigint,
   primaryKey,
   index,
+  unique,
 } from "drizzle-orm/pg-core";
 
 export type RoomOption = {
@@ -562,6 +565,37 @@ export const giftCardTx = pgTable("gift_card_tx", {
   note: text("note").notNull().default(""),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
+
+export type PaymentGatewayId = "zarinpal" | "zibal" | "saman" | "mellat";
+export type PaymentCallbackData = {
+  refNum?: string;
+  terminalId?: string;
+  amount?: number;
+  saleOrderId?: number;
+  saleReferenceId?: number;
+};
+
+export const paymentTransactions = pgTable("payment_transactions", {
+  id: serial("id").primaryKey(),
+  reservationId: integer("reservation_id").references(() => reservations.id, { onDelete: "restrict" }),
+  giftCardId: integer("gift_card_id").references(() => giftCards.id, { onDelete: "restrict" }),
+  provider: text("provider").$type<PaymentGatewayId>().notNull(),
+  amount: integer("amount").notNull(),
+  authority: text("authority"),
+  callbackTokenHash: text("callback_token_hash").notNull(),
+  callbackData: jsonb("callback_data").$type<PaymentCallbackData>().notNull().default({}),
+  status: text("status").notNull().default("creating"),
+  refCode: text("ref_code"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  verifiedAt: timestamp("verified_at"),
+}, (t) => [
+  index("payment_transactions_reservation_idx").on(t.reservationId, t.createdAt),
+  index("payment_transactions_giftcard_idx").on(t.giftCardId, t.createdAt),
+  unique("payment_transactions_provider_authority_unique").on(t.provider, t.authority),
+  check("payment_transactions_one_owner_check", sql`(${t.reservationId} IS NOT NULL)::int + (${t.giftCardId} IS NOT NULL)::int = 1`),
+  check("payment_transactions_positive_amount_check", sql`${t.amount} > 0`),
+]);
 
 /* ================= restaurant / café table bookings ================= */
 export const tableBookings = pgTable(

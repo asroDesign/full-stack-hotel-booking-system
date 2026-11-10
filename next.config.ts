@@ -13,7 +13,7 @@ const csp = [
   "frame-src https://www.youtube.com https://www.aparat.com",
   "object-src 'none'",
   "base-uri 'self'",
-  "form-action 'self'",
+  "form-action 'self' https://payment.zarinpal.com https://sandbox.zarinpal.com https://gateway.zibal.ir https://sep.shaparak.ir https://bpm.shaparak.ir",
 ].join("; ");
 
 const nextConfig: NextConfig = {

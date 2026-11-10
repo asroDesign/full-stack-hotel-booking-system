@@ -1,6 +1,8 @@
 import { cache } from "react";
 import { db } from "@/db";
 import { settings } from "@/db/schema";
+import { and, eq } from "drizzle-orm";
+import { encryptPaymentCredential, isPrivatePaymentField, readPaymentCredential } from "@/lib/payment-settings";
 import { ensureSeeded } from "./seed";
 
 export const defaultSettings = {
@@ -44,6 +46,17 @@ export const defaultSettings = {
   giftCardAmounts: "2000000,5000000,10000000,20000000",
   giftCardValidMonths: "12",
   giftCardMin: "1000000",
+  paymentZarinpalEnabled: "0",
+  zarinpalMerchantId: "",
+  zarinpalSandbox: "0",
+  paymentZibalEnabled: "0",
+  zibalMerchant: "",
+  paymentSamanEnabled: "0",
+  samanTerminalId: "",
+  paymentMellatEnabled: "0",
+  mellatTerminalId: "",
+  mellatUsername: "",
+  mellatPassword: "",
   /* in-house guests */
   stayPortalEnabled: "1",
   wifiName: "",
@@ -82,7 +95,7 @@ export const defaultSettings = {
 export type SiteSettings = typeof defaultSettings;
 
 /** Keys that must never be sent to the browser. */
-export const SECRET_SETTING_KEYS = ["smsApiKey"] as const;
+export const SECRET_SETTING_KEYS = ["smsApiKey", "zarinpalMerchantId", "zibalMerchant", "mellatUsername", "mellatPassword"] as const;
 
 /** Uncached read. Does NOT wait for seeding (it is used by the seed itself → avoids a circular wait). */
 export async function getSettingsFresh(): Promise<SiteSettings> {
@@ -96,7 +109,19 @@ async function loadSettings(seed: boolean): Promise<SiteSettings> {
   const rows = await db.select().from(settings);
   const out: SiteSettings = { ...defaultSettings };
   for (const r of rows) {
-    if (r.key in out) (out as Record<string, string>)[r.key] = r.value;
+    if (!(r.key in out)) continue;
+    if (isPrivatePaymentField(r.key) && r.value) {
+      if (r.value.startsWith("enc:v1:")) {
+        readPaymentCredential(r.value);
+      } else if (r.value.startsWith("enc:")) {
+        throw new Error("نسخهٔ رمزگذاری اطلاعات درگاه پشتیبانی نمی‌شود؛ PAYMENT_CREDENTIALS_KEY را بررسی کنید.");
+      } else {
+        const encrypted = encryptPaymentCredential(r.value);
+        await db.update(settings).set({ value: encrypted }).where(and(eq(settings.key, r.key), eq(settings.value, r.value)));
+        r.value = encrypted;
+      }
+    }
+    (out as Record<string, string>)[r.key] = r.value;
   }
   return out;
 }

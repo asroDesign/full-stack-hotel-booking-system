@@ -8,13 +8,17 @@ import { getSettings } from "@/lib/data";
 import { normalizeMobile } from "@/lib/crm";
 import { GiftPayForm } from "@/components/site/guest-ui";
 import { formatJalali, formatPrice } from "@/lib/utils";
+import { getPaymentGatewayOptions } from "@/lib/payment-gateways";
+import { publicAccessPhone } from "@/lib/public-access";
 
-export const metadata = { title: "سفارش کارت هدیه" };
+export const metadata = { title: "سفارش کارت هدیه", robots: { index: false, follow: false } };
 
-export default async function GiftOrder({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ p?: string }> }) {
+export default async function GiftOrder({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ payment?: string }> }) {
   const { id } = await params;
   const sp = await searchParams;
-  const [g] = await db.select().from(giftCards).where(and(eq(giftCards.id, Number(id)), eq(giftCards.purchaserPhone, normalizeMobile(sp.p ?? ""))));
+  const phone = await publicAccessPhone("gift", id);
+  if (!phone) notFound();
+  const [g] = await db.select().from(giftCards).where(and(eq(giftCards.id, Number(id)), eq(giftCards.purchaserPhone, normalizeMobile(phone))));
   if (!g) notFound();
   const s = await getSettings();
   return (
@@ -22,6 +26,10 @@ export default async function GiftOrder({ params, searchParams }: { params: Prom
       <div className="tpl-card rounded-box bg-base-100 p-6 shadow-xl ring-1 ring-base-300">
         <h1 className="text-2xl font-black text-brand-900">کارت هدیه {formatPrice(g.initialAmount)} تومان</h1>
         <p className="mt-1 text-sm text-base-content/60">{g.recipientName ? `برای ${g.recipientName}` : "خرید برای خودتان"} · خریدار: {g.purchaserName}</p>
+        {sp.payment === "success" && <div role="alert" className="alert alert-success mt-4">پرداخت تأیید شد و کارت هدیه فعال شد.</div>}
+        {sp.payment === "failed" && <div role="alert" className="alert alert-error mt-4">پرداخت تأیید نشد. در صورت کسر وجه، رسید را نگه دارید.</div>}
+        {sp.payment === "processing" && <div role="alert" className="alert alert-warning mt-4">نتیجهٔ بانک در حال بررسی است؛ پرداخت را تکرار نکنید.</div>}
+        {sp.payment === "refund" && <div role="alert" className="alert alert-warning mt-4">پرداخت دریافت شد اما سفارش نیازمند بررسی و پیگیری استرداد است.</div>}
         {g.status === "active" || g.status === "used" ? (
           <div className="mt-6 rounded-box bg-gradient-to-br from-brand-800 to-brand-950 p-6 text-center text-white">
             <CheckCircle2 className="mx-auto h-10 w-10 text-gold-300" />
@@ -35,7 +43,7 @@ export default async function GiftOrder({ params, searchParams }: { params: Prom
         ) : g.status === "void" ? (
           <div role="alert" className="alert alert-error alert-soft mt-6">این سفارش باطل شده است.</div>
         ) : (
-          <div className="mt-6"><GiftPayForm id={g.id} phone={g.purchaserPhone} amount={g.initialAmount} card={{ number: s.cardNumber, holder: s.cardHolder, bank: s.bankName }} /></div>
+          <div className="mt-6"><GiftPayForm id={g.id} phone={g.purchaserPhone} amount={g.initialAmount} card={{ number: s.cardNumber, holder: s.cardHolder, bank: s.bankName }} gateways={getPaymentGatewayOptions(s)} /></div>
         )}
         <Link href="/gift-cards" className="btn btn-ghost btn-block mt-4">بازگشت</Link>
       </div>

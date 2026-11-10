@@ -59,7 +59,7 @@ export function AdminProfileForm({ name, email, usesDefault }: { name: string; e
         <div className="grid gap-3 sm:grid-cols-2">
           <div><label className="field-label">نام نمایشی</label><input name="name" defaultValue={name} className="input w-full" required /></div>
           <div><label className="field-label">ایمیل ورود</label><input name="email" type="email" defaultValue={email} dir="ltr" className="input w-full text-left" required autoComplete="username" /></div>
-          <div><label className="field-label">رمز جدید (حداقل ۸ کاراکتر، حرف و عدد)</label><input name="next" type="password" dir="ltr" className="input w-full text-left" autoComplete="new-password" placeholder="خالی = بدون تغییر" /></div>
+          <div><label className="field-label">رمز جدید (حداقل ۱۲ کاراکتر، حرف و عدد)</label><input name="next" type="password" dir="ltr" className="input w-full text-left" autoComplete="new-password" placeholder="خالی = بدون تغییر" /></div>
           <div><label className="field-label">تکرار رمز جدید</label><input name="confirm" type="password" dir="ltr" className="input w-full text-left" autoComplete="new-password" /></div>
         </div>
         <div className="rounded-box bg-base-200/60 p-3">

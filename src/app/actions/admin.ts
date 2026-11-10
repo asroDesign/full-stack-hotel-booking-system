@@ -35,9 +35,11 @@ import { journalEntries, type RoomOption } from "@/db/schema";
 import { and as andOp } from "drizzle-orm";
 import { ensureSeeded } from "@/lib/seed";
 import { defaultSettings } from "@/lib/data";
+import { encryptPaymentCredential, isPrivatePaymentField } from "@/lib/payment-settings";
 import { bookedSlots, roomConflicts } from "@/lib/availability";
 import { formatJalali, genReservationCode, linesToArray, slugify, toEnDigits } from "@/lib/utils";
 import { defaultBooking, defaultHome } from "@/lib/content";
+import { grantPublicAccess } from "@/lib/public-access";
 
 export type ActionState = { ok?: boolean; error?: string; message?: string } | null;
 
@@ -79,11 +81,21 @@ export async function changePassword(_p: ActionState, fd: FormData): Promise<Act
   const next = str(fd, "next");
   const [admin] = await db.select().from(admins).where(eq(admins.id, me.id));
   if (!admin || !verifyPassword(current, admin.passwordHash)) return { error: "رمز فعلی اشتباه است." };
-  if (next.length < 8) return { error: "رمز جدید باید حداقل ۸ کاراکتر باشد." };
+  if (next.length < 12) return { error: "رمز جدید باید حداقل ۱۲ کاراکتر باشد." };
   if (next === DEMO_PASSWORD) return { error: "این رمز، رمز عمومی نسخه نمایشی است؛ رمز دیگری انتخاب کنید." };
   await db.update(admins).set({ passwordHash: hashPassword(next) }).where(eq(admins.id, me.id));
   await revokeOtherSessions(me.id);
   return { ok: true, message: "رمز عبور تغییر کرد و سایر نشست‌های فعال خارج شدند." };
+}
+
+
+export async function openGuestReservation(fd: FormData): Promise<never> {
+  await requireAdmin();
+  const id = num(fd, "id");
+  const [reservation] = await db.select({ trackingCode: reservations.trackingCode, phone: reservations.phone }).from(reservations).where(eq(reservations.id, id));
+  if (!reservation) redirect("/admin/reservations");
+  await grantPublicAccess("reservation", reservation.trackingCode, reservation.phone);
+  redirect(`/track/${reservation.trackingCode}`);
 }
 
 /* ---------------- rooms ---------------- */
@@ -399,7 +411,14 @@ export async function saveSettings(_p: ActionState, fd: FormData): Promise<Actio
     if (!fd.has(key)) continue;
     const all = fd.getAll(key);
     const value = all.length > 1 ? cleanText(all[all.length - 1], 20000) : str(fd, key);
-    if (key === "smsApiKey" && (value === "" || value.includes("•"))) continue;
+    if ((key === "smsApiKey" || isPrivatePaymentField(key)) && (value === "" || value.includes("•"))) continue;
+    if (isPrivatePaymentField(key)) {
+      let encrypted: string;
+      try { encrypted = encryptPaymentCredential(value); }
+      catch (e) { return { error: e instanceof Error ? e.message : "کلید رمزگذاری درگاه تنظیم نشده است." }; }
+      await db.insert(settings).values({ key, value: encrypted }).onConflictDoUpdate({ target: settings.key, set: { value: encrypted } });
+      continue;
+    }
     if (key === "logoUrl") {
       const v = safeUrl(linesToArray(value)[0] ?? "");
       await db.insert(settings).values({ key, value: v }).onConflictDoUpdate({ target: settings.key, set: { value: v } });
@@ -497,7 +516,7 @@ export async function updateAdminProfile(_p: ActionState, fd: FormData): Promise
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return { error: "ایمیل معتبر نیست." };
   const patch: Partial<typeof admins.$inferInsert> = { name, email };
   if (next) {
-    if (next.length < 8) return { error: "رمز جدید باید حداقل ۸ کاراکتر باشد." };
+    if (next.length < 12) return { error: "رمز جدید باید حداقل ۱۲ کاراکتر باشد." };
     if (next !== confirm) return { error: "تکرار رمز جدید مطابقت ندارد." };
     if (next === DEMO_PASSWORD) return { error: "این رمز، رمز عمومی نسخه نمایشی است؛ رمز دیگری انتخاب کنید." };
     if (!/[A-Za-z]/.test(next) || !/\d/.test(next)) return { error: "رمز جدید باید شامل حرف و عدد باشد." };

@@ -296,6 +296,12 @@ export async function audienceCount(a: CampaignAudience) {
   return (await resolveAudience(a)).length;
 }
 
+function intentDateTime(date: string, time: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(time)) return "";
+  const parsed = new Date(`${date}T${time}:00+03:30`);
+  return Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== date ? "" : parsed.toISOString();
+}
+
 export async function saveCampaign(_p: HState, fd: FormData): Promise<HState> {
   await requireAdmin();
   const id = num(fd.get("id"));
@@ -304,8 +310,10 @@ export async function saveCampaign(_p: HState, fd: FormData): Promise<HState> {
   if (!name || message.length < 5) return { error: "نام کمپین و متن پیامک را وارد کنید." };
   const promoMode = (["none", "shared", "unique"].includes(String(fd.get("promoMode"))) ? fd.get("promoMode") : "none") as "none" | "shared" | "unique";
   if (promoMode !== "none" && !/\{code\}/.test(message)) return { error: "برای ارسال کد تخفیف، متغیر {code} را در متن پیامک قرار دهید." };
-  const when = String(fd.get("scheduledAt") ?? "");
+  const scheduledDate = String(fd.get("scheduledDate") ?? "");
+  const scheduledTime = String(fd.get("scheduledTime") ?? "");
   const intent = String(fd.get("intent") ?? "draft");
+  const when = intentDateTime(scheduledDate, scheduledTime);
   const data = {
     name,
     message,
@@ -318,7 +326,7 @@ export async function saveCampaign(_p: HState, fd: FormData): Promise<HState> {
     scheduledAt: intent === "schedule" && when ? new Date(when) : intent === "send" ? new Date() : null,
     status: (intent === "draft" ? "draft" : "scheduled") as "draft" | "scheduled",
   };
-  if (intent === "schedule" && (!when || Number.isNaN(new Date(when).getTime()))) return { error: "زمان ارسال را انتخاب کنید." };
+  if (intent === "schedule" && (!when || Number.isNaN(new Date(when).getTime()) || new Date(when).getTime() <= Date.now())) return { error: "تاریخ و ساعت آینده را برای زمان‌بندی انتخاب کنید." };
   let cid = id;
   if (id) {
     const [c] = await db.select().from(campaigns).where(eq(campaigns.id, id));

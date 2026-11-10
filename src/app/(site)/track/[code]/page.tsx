@@ -5,21 +5,24 @@ import { CheckCircle2, ClipboardList, CreditCard, FileCheck2, PartyPopper, Print
 import { db } from "@/db";
 import { reservations } from "@/db/schema";
 import { getSettings } from "@/lib/data";
-import { cn, faNum, formatDateTime, formatJalali, formatPrice, statusMeta, toEnDigits } from "@/lib/utils";
+import { cn, faNum, formatDateTime, formatJalali, formatPrice, statusMeta } from "@/lib/utils";
 import { PaymentPanel } from "@/components/site/forms";
+import { getPaymentGatewayOptions } from "@/lib/payment-gateways";
+import { publicAccessPhone } from "@/lib/public-access";
 
-export const metadata = { title: "وضعیت رزرو" };
+export const metadata = { title: "وضعیت رزرو", robots: { index: false, follow: false } };
 
 export default async function TrackDetail({
   params,
   searchParams,
 }: {
   params: Promise<{ code: string }>;
-  searchParams: Promise<{ phone?: string; new?: string }>;
+  searchParams: Promise<{ new?: string; payment?: string }>;
 }) {
   const { code } = await params;
   const sp = await searchParams;
-  const phone = toEnDigits(sp.phone ?? "");
+  const phone = await publicAccessPhone("reservation", code);
+  if (!phone) notFound();
   const [r] = await db
     .select()
     .from(reservations)
@@ -40,6 +43,10 @@ export default async function TrackDetail({
     <div className="relative overflow-hidden pb-10 pt-32 in-data-[tpl=boutique]:pt-10">
       <div className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-96 bg-gradient-to-b from-brand-950 to-brand-800" />
       <div className="mx-auto max-w-4xl px-6">
+        {sp.payment === "success" && <div role="alert" className="alert alert-success mb-6">پرداخت بانکی تأیید شد و برای بررسی پذیرش ثبت شد.</div>}
+        {sp.payment === "failed" && <div role="alert" className="alert alert-error mb-6">پرداخت تأیید نشد. در صورت کسر وجه، رسید را نگه دارید و با پذیرش تماس بگیرید.</div>}
+        {sp.payment === "processing" && <div role="alert" className="alert alert-warning mb-6">نتیجهٔ بانک هنوز دریافت نشده است. اگر وجه کسر شده، پرداخت را تکرار نکنید و با پذیرش تماس بگیرید.</div>}
+        {sp.payment === "refund" && <div role="alert" className="alert alert-warning mb-6">پرداخت بانکی دریافت شده اما با رزرو تطبیق نداشت؛ پیگیری استرداد لازم است.</div>}
         {sp.new && r.status === "pending_payment" && (
           <div role="alert" className="alert alert-success mb-6 animate-fade-up shadow-xl">
             <PartyPopper className="h-6 w-6 shrink-0" />
@@ -130,7 +137,7 @@ export default async function TrackDetail({
               {r.status === "pending_payment" ? (
                 <>
                   <h3 className="mb-3 font-extrabold text-slate-900">پرداخت پیش‌پرداخت</h3>
-                  <PaymentPanel code={r.trackingCode} phone={r.phone} amount={r.depositAmount} cardNumber={s.cardNumber} cardHolder={s.cardHolder} bankName={s.bankName} />
+                  <PaymentPanel code={r.trackingCode} phone={r.phone} amount={r.depositAmount} cardNumber={s.cardNumber} cardHolder={s.cardHolder} bankName={s.bankName} gateways={getPaymentGatewayOptions(s)} />
                 </>
               ) : (
                 <div className="flex h-full flex-col justify-center gap-3 rounded-3xl bg-slate-50 p-6 text-center text-sm text-slate-600">

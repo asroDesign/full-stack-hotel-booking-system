@@ -4,6 +4,7 @@ import { SiteFooter } from "@/components/site/footer";
 import { getSettings } from "@/lib/data";
 import { logoLetter, templateOf } from "@/lib/appearance";
 import { safeUrl } from "@/lib/sanitize";
+import { redactPaymentCredentials } from "@/lib/payment-settings";
 import { FloatingContact } from "@/components/site/extras-client";
 
 export const dynamic = "force-dynamic";
@@ -55,7 +56,7 @@ export default async function SiteLayout({ children }: { children: ReactNode }) 
         template={template}
       />
       <main className="min-h-screen">{children}</main>
-      <SiteFooter s={{ ...s, logoUrl: safeUrl(s.logoUrl), smsApiKey: "" }} links={footerLinks} template={template} logoLetter={letter} />
+      <SiteFooter s={{ ...redactPaymentCredentials(s), logoUrl: safeUrl(s.logoUrl), smsApiKey: "" }} links={footerLinks} template={template} logoLetter={letter} />
       {on("floatingContact") && template !== "opus" && <FloatingContact phone={s.phone} whatsapp={s.whatsapp} />}
     </div>
   );

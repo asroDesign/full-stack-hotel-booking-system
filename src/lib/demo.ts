@@ -46,7 +46,7 @@ export async function getDemoState() {
   const enabled = env === "false" ? false : env === "true" ? true : s.demoMode === "1";
   const [demoAdmin] = await db.select().from(admins).where(inArray(admins.email, DEMO_EMAILS));
   const defaultCredentials = !!demoAdmin && verifyPassword(DEMO_PASSWORD, demoAdmin.passwordHash);
-  return { enabled, forced, defaultCredentials, showCredentials: enabled && defaultCredentials, email: demoAdmin?.email ?? DEMO_EMAIL };
+  return { enabled, forced, defaultCredentials, showCredentials: process.env.NODE_ENV !== "production" && enabled && defaultCredentials, email: demoAdmin?.email ?? DEMO_EMAIL };
 }
 
 /** Does this admin still use the publicly known default password? */

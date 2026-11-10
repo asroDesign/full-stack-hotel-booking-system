@@ -26,6 +26,7 @@ import {
 } from "@/app/actions/hotel";
 import type { CampaignAudience, CustomerGroup, CustomerTier, Partner } from "@/db/schema";
 import { JalaliDatePicker } from "@/components/jalali-date-picker";
+import { todayISO } from "@/lib/utils";
 import { FormAlert, Modal, SubmitButton, Toast } from "./ui";
 import { cn, faNum, formatPrice, jMonths } from "@/lib/utils";
 
@@ -185,6 +186,7 @@ export function CampaignForm({ groups, templates }: { groups: { id: number; name
   const [msg, setMsg] = useState("{name} عزیز، ");
   const [promo, setPromo] = useState<"none" | "shared" | "unique">("unique");
   const [count, setCount] = useState<number | null>(null);
+  const [scheduledDate, setScheduledDate] = useState(todayISO());
   const audience: CampaignAudience = useMemo(() => (all ? { all: true } : { groupIds: gids, tiers }), [all, gids, tiers]);
   useEffect(() => {
     let alive = true;
@@ -254,7 +256,7 @@ export function CampaignForm({ groups, templates }: { groups: { id: number; name
             </>
           )}
           <div className="rounded-box bg-primary/10 p-3 text-center text-sm">{count === null ? <span className="loading loading-dots loading-sm" /> : <><b className="text-2xl">{faNum(count)}</b> گیرنده (فقط مشتریان دارای رضایت دریافت پیامک)</>}</div>
-          <div><label className="field-label">زمان ارسال (برای زمان‌بندی)</label><input name="scheduledAt" type="datetime-local" className="input w-full" dir="ltr" /></div>
+          <div className="grid grid-cols-2 gap-3"><JalaliDatePicker name="scheduledDate" label="تاریخ ارسال" value={scheduledDate} min={todayISO()} onChange={setScheduledDate} /><div><label className="field-label">ساعت ارسال</label><select name="scheduledTime" defaultValue="09:00" className="select w-full" dir="ltr">{Array.from({ length: 24 }, (_, hour) => ["00", "30"].map((minute) => `${String(hour).padStart(2, "0")}:${minute}`)).flat().map((time) => <option key={time} value={time}>{faNum(time)}</option>)}</select></div></div>
           <FormAlert state={state} />
           <div className="grid gap-2">
             <button name="intent" value="send" className="btn btn-primary" onClick={(e) => { if (!confirm(`ارسال فوری برای ${count ?? 0} نفر؟`)) e.preventDefault(); }}><Send className="h-4 w-4" /> ارسال فوری</button>

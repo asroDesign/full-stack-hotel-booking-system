@@ -20,8 +20,12 @@ import { linkReservationCustomer } from "@/lib/crm";
 import { giftCards, giftCardTx } from "@/db/schema";
 import { isUsable, normalizeGiftCode, redeemGiftCard } from "@/lib/giftcards";
 import { sql } from "drizzle-orm";
+import { startReservationPayment } from "@/lib/payment-service";
+import type { PaymentGatewayId } from "@/db/schema";
+import type { GatewayRedirect } from "@/lib/payment-providers";
+import { grantPublicAccess, hasPublicAccess } from "@/lib/public-access";
 
-export type FormState = { ok?: boolean; error?: string; message?: string } | null;
+export type FormState = { ok?: boolean; error?: string; message?: string; redirect?: GatewayRedirect } | null;
 
 function s(fd: FormData, key: string, max = 200) {
   return toEnDigits(cleanText(fd.get(key), max));
@@ -157,7 +161,8 @@ export async function createReservation(_prev: FormState, fd: FormData): Promise
   });
 
   revalidatePath("/admin");
-  redirect(`/track/${trackingCode}?phone=${phone}&new=1`);
+  await grantPublicAccess("reservation", trackingCode, phone);
+  redirect(`/track/${trackingCode}?new=1`);
 }
 
 export async function payDeposit(_prev: FormState, fd: FormData): Promise<FormState> {
@@ -167,32 +172,15 @@ export async function payDeposit(_prev: FormState, fd: FormData): Promise<FormSt
 
   const code = s(fd, "code", 20).toUpperCase();
   const phone = s(fd, "phone", 15);
-  let method = s(fd, "method") === "gateway" ? "gateway" : "card";
-  let ref = s(fd, "ref", 30);
+  const method = s(fd, "method") === "gateway" ? "gateway" : "card";
+  const ref = s(fd, "ref", 30);
   const giftCode = normalizeGiftCode(fd.get("giftCode"));
+  const providerInput = s(fd, "provider");
+  const provider = (["zarinpal", "zibal", "saman", "mellat"] as const).find((id) => id === providerInput) as PaymentGatewayId | undefined;
 
-  const [res] = await db
-    .select()
-    .from(reservations)
-    .where(and(eq(reservations.trackingCode, code), eq(reservations.phone, phone)));
-  if (!res) return { error: "درخواست رزرو یافت نشد." };
+  const [res] = await db.select().from(reservations).where(and(eq(reservations.trackingCode, code), eq(reservations.phone, phone)));
+  if (!res || !(await hasPublicAccess("reservation", res.trackingCode, phone))) return { error: "درخواست رزرو یافت نشد." };
   if (res.status !== "pending_payment") return { error: "پیش‌پرداخت این رزرو قبلاً ثبت شده است." };
-
-  let giftUse = 0;
-  if (giftCode) {
-    const [g] = await db.select().from(giftCards).where(eq(giftCards.code, giftCode));
-    if (!g || !isUsable(g)) return { error: "کارت هدیه معتبر نیست، منقضی شده یا مانده‌ای ندارد." };
-    giftUse = Math.min(g.balance, res.depositAmount);
-  }
-  const remainder = res.depositAmount - giftUse;
-  if (remainder <= 0) {
-    method = "giftcard";
-    ref = giftCode;
-  } else if (method === "card") {
-    if (!/^\d{4,20}$/.test(ref)) return { error: "شماره پیگیری / مرجع تراکنش را صحیح وارد کنید." };
-  } else {
-    ref = `GW${Date.now().toString().slice(-8)}`;
-  }
 
   if (res.kind === "room" && res.roomId && res.checkOut) {
     const c = await roomConflicts(res.roomId, res.checkIn, res.checkOut, res.id);
@@ -200,38 +188,55 @@ export async function payDeposit(_prev: FormState, fd: FormData): Promise<FormSt
   }
   if (res.promoCode) {
     const [p] = await db.select().from(promotions).where(eq(promotions.code, res.promoCode));
-    if (p && p.maxUses > 0 && (await promoUses(p.code)) >= p.maxUses)
-      return { error: "ظرفیت کد تخفیف این رزرو تکمیل شده است. لطفاً با پذیرش تماس بگیرید." };
+    if (p && p.maxUses > 0 && (await promoUses(p.code)) >= p.maxUses) return { error: "ظرفیت کد تخفیف این رزرو تکمیل شده است. لطفاً با پذیرش تماس بگیرید." };
   }
   if (res.kind === "service" && res.serviceId) {
     const taken = await bookedSlots(res.serviceId, res.checkIn, res.id);
     if (taken.includes(res.timeSlot)) return { error: "این سانس به‌تازگی رزرو شد. لطفاً با پذیرش تماس بگیرید." };
   }
 
-  let used = 0;
-  if (giftUse > 0) {
-    used = await redeemGiftCard(giftCode, giftUse, res.id);
-    if (used < giftUse && remainder <= 0) {
-      if (used > 0) await refundGift(giftCode, used, res.id);
-      return { error: "مانده کارت هدیه تغییر کرده است. لطفاً دوباره تلاش کنید." };
+  let giftUse = 0;
+  if (giftCode) {
+    const [gift] = await db.select().from(giftCards).where(eq(giftCards.code, giftCode));
+    if (!gift || !isUsable(gift)) return { error: "کارت هدیه معتبر نیست، منقضی شده یا مانده‌ای ندارد." };
+    giftUse = Math.min(gift.balance, res.depositAmount);
+    if (giftUse > 0 && giftUse < res.depositAmount) return { error: "برای استفاده از کارت هدیه، ماندهٔ آن باید کل پیش‌پرداخت را پوشش دهد. پرداخت را بدون کد هدیه ادامه دهید یا با پذیرش تماس بگیرید." };
+  }
+
+  if (giftUse === res.depositAmount && giftUse > 0) {
+    const used = await redeemGiftCard(giftCode, giftUse, res.id);
+    if (used !== giftUse) return { error: "مانده کارت هدیه تغییر کرده است. لطفاً دوباره تلاش کنید." };
+    const [updated] = await db.update(reservations)
+      .set({ status: "paid", paymentMethod: "giftcard", paymentRef: giftCode, paidAt: new Date(), giftCardCode: giftCode, giftCardAmount: used })
+      .where(and(eq(reservations.id, res.id), eq(reservations.status, "pending_payment"))).returning();
+    if (!updated) {
+      await refundGift(giftCode, used, res.id);
+      return { error: "وضعیت رزرو تغییر کرده است؛ صفحه را دوباره بارگذاری کنید." };
     }
-  }
-  const [updated] = await db
-    .update(reservations)
-    .set({ status: "paid", paymentMethod: method, paymentRef: ref, paidAt: new Date(), giftCardCode: used ? giftCode : "", giftCardAmount: used })
-    .where(and(eq(reservations.id, res.id), eq(reservations.status, "pending_payment")))
-    .returning();
-  if (!updated) {
-    if (used > 0) await refundGift(giftCode, used, res.id);
-    return { error: "وضعیت رزرو تغییر کرده است. صفحه را دوباره بارگذاری کنید." };
+    await syncReservationVouchers(updated);
+    after(() => notifyAdmins(updated, "paid"));
+    revalidatePath(`/track/${code}`);
+    revalidatePath("/admin");
+    return { ok: true, message: "پیش‌پرداخت با کارت هدیه ثبت شد. پس از تأیید پذیرش، کد رزرو صادر می‌شود." };
   }
 
-  await syncReservationVouchers(updated);
-  after(() => notifyAdmins(updated, "paid"));
+  if (method === "card") {
+    if (!/^\d{4,20}$/.test(ref)) return { error: "شماره پیگیری / مرجع تراکنش را صحیح وارد کنید." };
+    const [updated] = await db.update(reservations).set({ paymentMethod: "card", paymentRef: ref })
+      .where(and(eq(reservations.id, res.id), eq(reservations.status, "pending_payment"))).returning();
+    if (!updated) return { error: "وضعیت رزرو تغییر کرده است؛ صفحه را دوباره بارگذاری کنید." };
+    revalidatePath(`/track/${code}`);
+    revalidatePath("/admin");
+    return { ok: true, message: "رسید واریز ثبت شد و پس از بررسی مالی، پرداخت در پنل تأیید می‌شود." };
+  }
 
-  revalidatePath(`/track/${code}`);
-  revalidatePath("/admin");
-  return { ok: true, message: used ? `پیش‌پرداخت ثبت شد (${used.toLocaleString("fa-IR")} تومان از کارت هدیه). پس از تایید پذیرش، کد رزرو صادر و پیامک می‌شود.` : "پیش‌پرداخت با موفقیت ثبت شد. پس از تایید پذیرش، کد رزرو برای شما صادر و پیامک می‌شود." };
+  if (!provider) return { error: "یک درگاه پرداخت فعال را انتخاب کنید." };
+  try {
+    const redirect = await startReservationPayment(code, phone, provider);
+    return { redirect };
+  } catch (error) {
+    return { error: error instanceof Error ? error.message.slice(0, 250) : "شروع پرداخت ناموفق بود؛ دوباره تلاش کنید." };
+  }
 }
 
 async function refundGift(code: string, amount: number, reservationId: number) {
@@ -273,13 +278,14 @@ export async function lookupReservation(_prev: FormState, fd: FormData): Promise
     .select({ trackingCode: reservations.trackingCode })
     .from(reservations)
     .where(and(eq(reservations.phone, phone), eq(reservations.trackingCode, code)));
-  if (res) redirect(`/track/${res.trackingCode}?phone=${phone}`);
+  if (res) { await grantPublicAccess("reservation", res.trackingCode, phone); redirect(`/track/${res.trackingCode}`); }
   const [byRes] = await db
     .select({ trackingCode: reservations.trackingCode })
     .from(reservations)
     .where(and(eq(reservations.phone, phone), eq(reservations.reservationCode, code)));
   if (!byRes) return { error: "رزروی با این مشخصات یافت نشد." };
-  redirect(`/track/${byRes.trackingCode}?phone=${phone}`);
+  await grantPublicAccess("reservation", byRes.trackingCode, phone);
+  redirect(`/track/${byRes.trackingCode}`);
 }
 
 export async function submitReview(_prev: FormState, fd: FormData): Promise<FormState> {

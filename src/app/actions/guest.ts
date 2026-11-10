@@ -11,11 +11,14 @@ import { getSettingsFresh } from "@/lib/data";
 import { cleanText, clientIp, isHttpsRequest } from "@/lib/security";
 import { rateLimit, retryMessage } from "@/lib/rate-limit";
 import { isMobile, normalizeMobile, upsertCustomer } from "@/lib/crm";
-import { activateGiftCard, genGiftCode, giftSummary, isUsable, normalizeGiftCode } from "@/lib/giftcards";
+import { genGiftCode, giftSummary, isUsable, normalizeGiftCode } from "@/lib/giftcards";
+import { startGiftCardPayment } from "@/lib/payment-service";
+import type { PaymentGatewayId } from "@/db/schema";
 import { sign, verifySigned } from "@/lib/app-secret";
+import { grantPublicAccess, hasPublicAccess } from "@/lib/public-access";
 import { addDaysISO, todayISO, toEnDigits } from "@/lib/utils";
 
-export type GState = { ok?: boolean; error?: string; message?: string } | null;
+export type GState = { ok?: boolean; error?: string; message?: string; redirect?: import("@/lib/payment-providers").GatewayRedirect } | null;
 const s = (fd: FormData, k: string, max = 200) => toEnDigits(cleanText(fd.get(k), max));
 const ISO = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -49,7 +52,8 @@ export async function orderGiftCard(_p: GState, fd: FormData): Promise<GState> {
     })
     .returning();
   after(() => upsertCustomer({ name: purchaserName, phone: purchaserPhone, source: "website" }).then(() => undefined));
-  redirect(`/gift-cards/order/${g.id}?p=${purchaserPhone}`);
+  await grantPublicAccess("gift", g.id, purchaserPhone);
+  redirect(`/gift-cards/order/${g.id}`);
 }
 
 export async function payGiftCard(_p: GState, fd: FormData): Promise<GState> {
@@ -59,18 +63,25 @@ export async function payGiftCard(_p: GState, fd: FormData): Promise<GState> {
   const phone = normalizeMobile(s(fd, "phone", 20));
   const method = s(fd, "method") === "gateway" ? "gateway" : "card";
   const ref = s(fd, "ref", 30);
-  const [g] = await db.select().from(giftCards).where(and(eq(giftCards.id, id), eq(giftCards.purchaserPhone, phone)));
-  if (!g) return { error: "سفارش یافت نشد." };
-  if (g.status !== "pending_payment") return { error: "این سفارش قبلاً پرداخت شده است." };
+  const providerInput = s(fd, "provider");
+  const provider = (["zarinpal", "zibal", "saman", "mellat"] as const).find((gateway) => gateway === providerInput) as PaymentGatewayId | undefined;
+  const [gift] = await db.select().from(giftCards).where(and(eq(giftCards.id, id), eq(giftCards.purchaserPhone, phone)));
+  if (!gift || !(await hasPublicAccess("gift", gift.id, phone))) return { error: "سفارش یافت نشد." };
+  if (gift.status !== "pending_payment") return { error: "این سفارش قبلاً پرداخت شده است." };
   if (method === "card") {
     if (!/^\d{4,20}$/.test(ref)) return { error: "شماره پیگیری واریز را صحیح وارد کنید." };
-    await db.update(giftCards).set({ paymentMethod: "card", paymentRef: ref }).where(eq(giftCards.id, id));
+    const [updated] = await db.update(giftCards).set({ paymentMethod: "card", paymentRef: ref }).where(and(eq(giftCards.id, id), eq(giftCards.status, "pending_payment"))).returning({ id: giftCards.id });
+    if (!updated) return { error: "وضعیت سفارش تغییر کرده است؛ صفحه را دوباره بارگذاری کنید." };
     revalidatePath(`/gift-cards/order/${id}`);
-    return { ok: true, message: "اطلاعات واریز ثبت شد. پس از تایید مالی، کارت فعال و کد آن پیامک می‌شود." };
+    return { ok: true, message: "اطلاعات واریز ثبت شد؛ پس از تأیید مالی، کارت هدیه فعال می‌شود." };
   }
-  await activateGiftCard(id, { method: "gateway", ref: `GW${Date.now().toString().slice(-8)}` });
-  revalidatePath(`/gift-cards/order/${id}`);
-  return { ok: true, message: "پرداخت انجام شد و کارت هدیه فعال شد." };
+  if (!provider) return { error: "یک درگاه پرداخت فعال را انتخاب کنید." };
+  try {
+    const redirect = await startGiftCardPayment(id, phone, provider);
+    return { redirect };
+  } catch (error) {
+    return { error: error instanceof Error ? error.message.slice(0, 250) : "شروع پرداخت ناموفق بود؛ دوباره تلاش کنید." };
+  }
 }
 
 export async function checkGiftBalance(_p: GState, fd: FormData): Promise<GState> {
@@ -172,6 +183,8 @@ export async function stayNewRequest(_p: GState, fd: FormData): Promise<GState> 
 export async function stayReply(requestId: number, body: string): Promise<GState> {
   const r = await currentStay();
   if (!r) return { error: "نشست شما منقضی شده است؛ دوباره وارد شوید." };
+  const rl = await rateLimit(`stayreply:${r.id}`, 40, 3600);
+  if (!rl.ok) return { error: retryMessage(rl.retryAfter) };
   const text = cleanText(body, 1500);
   if (text.length < 1) return { error: "متن پیام خالی است." };
   const [q] = await db.select().from(guestRequests).where(and(eq(guestRequests.id, requestId), eq(guestRequests.reservationId, r.id)));

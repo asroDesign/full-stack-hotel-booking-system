@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { CheckCircle2, AlertCircle, Send, CreditCard, Landmark, Copy, Search } from "lucide-react";
 import { sendMessage, payDeposit, lookupReservation, submitReview } from "@/app/actions/public";
 import { cn, faNum, formatPrice } from "@/lib/utils";
+import type { PaymentGatewayOption } from "@/lib/payment-gateways";
+import type { GatewayRedirect } from "@/lib/payment-providers";
 
 function Alert({ state }: { state: { ok?: boolean; error?: string; message?: string } | null }) {
   if (!state) return null;
@@ -71,6 +73,19 @@ export function ContactForm() {
   );
 }
 
+function goToGateway(redirect: GatewayRedirect) {
+  const allowed = ["payment.zarinpal.com", "sandbox.zarinpal.com", "gateway.zibal.ir", "sep.shaparak.ir", "bpm.shaparak.ir"];
+  const url = new URL(redirect.url);
+  if (url.protocol !== "https:" || url.username || url.password || !["", "443"].includes(url.port) || !allowed.includes(url.hostname)) throw new Error("نشانی درگاه معتبر نیست.");
+  if (redirect.redirectMethod === "POST") {
+    if (url.hostname !== "sep.shaparak.ir" || url.pathname !== "/OnlinePG/OnlinePG" || !redirect.redirectFields?.Token) throw new Error("اطلاعات انتقال سامان معتبر نیست.");
+    const form = document.createElement("form"); form.method = "POST"; form.action = url.toString(); form.style.display = "none";
+    for (const [name, value] of Object.entries(redirect.redirectFields)) { const input = document.createElement("input"); input.type = "hidden"; input.name = name; input.value = value; form.appendChild(input); }
+    document.body.appendChild(form); form.submit(); return;
+  }
+  window.location.assign(url.toString());
+}
+
 export function PaymentPanel({
   code,
   phone,
@@ -78,6 +93,7 @@ export function PaymentPanel({
   cardNumber,
   cardHolder,
   bankName,
+  gateways,
 }: {
   code: string;
   phone: string;
@@ -85,14 +101,17 @@ export function PaymentPanel({
   cardNumber: string;
   cardHolder: string;
   bankName: string;
+  gateways: PaymentGatewayOption[];
 }) {
   const [state, action, pending] = useActionState(payDeposit, null);
-  const [method, setMethod] = useState<"gateway" | "card">("gateway");
+  const [method, setMethod] = useState<"gateway" | "card">(gateways.length ? "gateway" : "card");
+  const [provider, setProvider] = useState(gateways[0]?.id ?? "");
   const [copied, setCopied] = useState(false);
   const router = useRouter();
 
   useEffect(() => {
-    if (state?.ok) router.refresh();
+    if (state?.redirect) { try { goToGateway(state.redirect); } catch { router.refresh(); } }
+    else if (state?.ok) router.refresh();
   }, [state, router]);
 
   return (
@@ -100,9 +119,10 @@ export function PaymentPanel({
       <input type="hidden" name="code" value={code} />
       <input type="hidden" name="phone" value={phone} />
       <input type="hidden" name="method" value={method} />
+      <input type="hidden" name="provider" value={provider} />
       <div className="grid grid-cols-2 gap-3">
         {[
-          { k: "gateway" as const, label: "درگاه پرداخت آنلاین", Icon: CreditCard },
+          ...(gateways.length ? [{ k: "gateway" as const, label: "درگاه پرداخت آنلاین", Icon: CreditCard }] : []),
           { k: "card" as const, label: "کارت به کارت", Icon: Landmark },
         ].map(({ k, label, Icon }) => (
           <button
@@ -122,7 +142,7 @@ export function PaymentPanel({
       <details className="rounded-box border border-dashed border-primary/30 bg-primary/5 p-3 text-sm">
         <summary className="cursor-pointer font-medium text-primary">پرداخت با کارت هدیه</summary>
         <input name="giftCode" dir="ltr" placeholder="GC-XXXX-XXXX" className="input mt-2 w-full text-left font-mono uppercase" />
-        <p className="mt-1 text-xs text-base-content/55">مانده کارت هدیه از پیش‌پرداخت کم می‌شود؛ اگر کافی نباشد، باقی‌مانده را با روش انتخاب‌شده پرداخت کنید.</p>
+        <p className="mt-1 text-xs text-base-content/55">کارت هدیه فقط زمانی اعمال می‌شود که ماندهٔ آن کل پیش‌پرداخت را پوشش دهد.</p>
       </details>
       {method === "card" ? (
         <div className="space-y-3">
@@ -151,16 +171,16 @@ export function PaymentPanel({
           </div>
         </div>
       ) : (
-        <p className="rounded-xl bg-slate-50 p-3 text-xs leading-6 text-slate-500">
-          با کلیک بر روی دکمه زیر به درگاه پرداخت امن منتقل می‌شوید. (در نسخه نمایشی، پرداخت به‌صورت شبیه‌سازی‌شده انجام می‌شود.)
-        </p>
+        <div className="space-y-3">
+          {gateways.length ? <><label className="field-label">انتخاب درگاه</label><select value={provider} onChange={(e) => setProvider(e.target.value)} className="select w-full">{gateways.map((g) => <option key={g.id} value={g.id}>{g.label}</option>)}</select><p className="rounded-xl bg-slate-50 p-3 text-xs leading-6 text-slate-500">پس از بازگشت از بانک، نتیجه از سرویس درگاه بررسی می‌شود.</p></> : <p className="rounded-xl bg-amber-50 p-3 text-xs leading-6 text-amber-800">درگاه اینترنتی هنوز تنظیم نشده است. برای پرداخت، رسید کارت‌به‌کارت را ثبت کنید.</p>}
+        </div>
       )}
 
       <Alert state={state} />
 
       <button disabled={pending} className="btn btn-secondary w-full h-12 text-base">
         {pending ? <span className="loading loading-spinner" /> : <CreditCard className="h-5 w-5" />}
-        {method === "gateway" ? `پرداخت ${formatPrice(amount)} تومان` : "ثبت اطلاعات واریز"}
+        {method === "gateway" ? `پرداخت ${formatPrice(amount)} تومان` : "ثبت رسید برای بررسی"}
       </button>
     </form>
   );

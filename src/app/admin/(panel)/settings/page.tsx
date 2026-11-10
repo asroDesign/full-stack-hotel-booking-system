@@ -10,7 +10,7 @@ export default async function Page() {
   return (
     <div>
       <PageHeader title="تنظیمات" desc="اطلاعات هتل، پرداخت، موقعیت مکانی و حساب کاربری" />
-      <SettingsForm s={{ ...s, smsApiKey: "" }} />
+      <SettingsForm s={{ ...s, smsApiKey: "", zarinpalMerchantId: "", zibalMerchant: "", mellatUsername: "", mellatPassword: "" }} />
       <div className="mt-6"><ImageOptimizer total={img.total} pending={img.pending} /></div>
       <div className="mt-6"><PasswordForm /></div>
     </div>

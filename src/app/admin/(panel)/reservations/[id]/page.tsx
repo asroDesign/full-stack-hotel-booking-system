@@ -7,6 +7,7 @@ import { partners, reservationGuests, reservations } from "@/db/schema";
 import { CheckButtons, CompanionsEditor, SourceBadge, SourceEditor } from "@/components/admin/frontdesk";
 import { PageHeader } from "@/components/admin/ui";
 import { ReservationActions, ReservationEditForm } from "@/components/admin/reservation-detail";
+import { openGuestReservation } from "@/app/actions/admin";
 import { faNum, formatDateTime, formatJalali, formatPrice } from "@/lib/utils";
 
 export default async function ReservationDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -35,7 +36,7 @@ export default async function ReservationDetailPage({ params }: { params: Promis
     ...(r.optionsTotal > 0 ? ([["خدمات و وعده‌ها", `${formatPrice(r.optionsTotal)} تومان`]] as [string, React.ReactNode][]) : []),
     ["مانده قابل دریافت", r.settledAt ? `تسویه شد (${formatDateTime(r.settledAt)})` : `${formatPrice(Math.max(0, r.totalPrice - r.depositAmount))} تومان`],
     ["پیش‌پرداخت", `${formatPrice(r.depositAmount)} تومان`],
-    ["روش پرداخت", r.paymentMethod === "gateway" ? "درگاه آنلاین" : r.paymentMethod === "card" ? "کارت به کارت" : r.paymentMethod === "manual" ? "ثبت دستی" : "—"],
+    ["روش پرداخت", ({ zarinpal: "زرین‌پال", zibal: "زیبال", saman: "سامان", mellat: "به‌پرداخت ملت", gateway: "درگاه آنلاین", card: "کارت به کارت", giftcard: "کارت هدیه", manual: "ثبت دستی" } as Record<string, string>)[r.paymentMethod] ?? "—"],
     ["مرجع تراکنش", r.paymentRef ? <span key="p" className="font-mono" dir="ltr">{faNum(r.paymentRef)}</span> : "—"],
     ["زمان پرداخت", formatDateTime(r.paidAt)],
     ["زمان تایید", formatDateTime(r.confirmedAt)],
@@ -48,7 +49,7 @@ export default async function ReservationDetailPage({ params }: { params: Promis
       <PageHeader
         title={`رزرو ${r.guestName}`}
         desc={r.itemName}
-        action={<Link href={`/track/${r.trackingCode}?phone=${r.phone}`} target="_blank" className="btn"><ExternalLink className="h-4 w-4" /> صفحه مهمان</Link>}
+        action={r.phone ? <form action={openGuestReservation} target="_blank"><input type="hidden" name="id" value={r.id} /><button className="btn"><ExternalLink className="h-4 w-4" /> صفحه مهمان</button></form> : undefined}
       />
       <div className="grid gap-6 lg:grid-cols-[1.6fr_1fr]">
         <div className="space-y-6">

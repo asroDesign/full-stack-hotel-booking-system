@@ -6,6 +6,8 @@ import { Gift, CreditCard, Landmark, Search, CalendarCheck, Send, LogIn, Wifi, P
 import { bookTable, checkGiftBalance, orderGiftCard, payGiftCard, stayLogin, stayNewRequest, stayReply } from "@/app/actions/guest";
 import { JalaliDatePicker } from "@/components/jalali-date-picker";
 import { cn, faNum, formatPrice, relativeTime, todayISO } from "@/lib/utils";
+import type { PaymentGatewayOption } from "@/lib/payment-gateways";
+import type { GatewayRedirect } from "@/lib/payment-providers";
 
 function Alert({ state }: { state: { ok?: boolean; error?: string; message?: string } | null }) {
   if (!state || (!state.error && !state.message)) return null;
@@ -46,18 +48,33 @@ export function GiftOrderForm({ amounts, min }: { amounts: number[]; min: number
   );
 }
 
-export function GiftPayForm({ id, phone, amount, card }: { id: number; phone: string; amount: number; card: { number: string; holder: string; bank: string } }) {
+function goToGiftGateway(redirect: GatewayRedirect) {
+  const allowed = ["payment.zarinpal.com", "sandbox.zarinpal.com", "gateway.zibal.ir", "sep.shaparak.ir", "bpm.shaparak.ir"];
+  const url = new URL(redirect.url);
+  if (url.protocol !== "https:" || url.username || url.password || !["", "443"].includes(url.port) || !allowed.includes(url.hostname)) throw new Error("نشانی درگاه معتبر نیست.");
+  if (redirect.redirectMethod === "POST") {
+    if (url.hostname !== "sep.shaparak.ir" || url.pathname !== "/OnlinePG/OnlinePG" || !redirect.redirectFields?.Token) throw new Error("اطلاعات انتقال سامان معتبر نیست.");
+    const form = document.createElement("form"); form.method = "POST"; form.action = url.toString(); form.style.display = "none";
+    for (const [name, value] of Object.entries(redirect.redirectFields)) { const input = document.createElement("input"); input.type = "hidden"; input.name = name; input.value = value; form.appendChild(input); }
+    document.body.appendChild(form); form.submit(); return;
+  }
+  window.location.assign(url.toString());
+}
+
+export function GiftPayForm({ id, phone, amount, card, gateways }: { id: number; phone: string; amount: number; card: { number: string; holder: string; bank: string }; gateways: PaymentGatewayOption[] }) {
   const router = useRouter();
   const [state, action, pending] = useActionState(payGiftCard, null);
-  const [method, setMethod] = useState<"gateway" | "card">("gateway");
+  const [method, setMethod] = useState<"gateway" | "card">(gateways.length ? "gateway" : "card");
+  const [provider, setProvider] = useState(gateways[0]?.id ?? "");
   useEffect(() => {
-    if (state?.ok) router.refresh();
+    if (state?.redirect) { try { goToGiftGateway(state.redirect); } catch { router.refresh(); } }
+    else if (state?.ok) router.refresh();
   }, [state, router]);
   return (
     <form action={action} className="space-y-4">
-      <input type="hidden" name="id" value={id} /><input type="hidden" name="phone" value={phone} /><input type="hidden" name="method" value={method} />
+      <input type="hidden" name="id" value={id} /><input type="hidden" name="phone" value={phone} /><input type="hidden" name="method" value={method} /><input type="hidden" name="provider" value={provider} />
       <div className="grid grid-cols-2 gap-3">
-        {([["gateway", "درگاه پرداخت", CreditCard], ["card", "کارت به کارت", Landmark]] as const).map(([k, l, I]) => (
+        {([...(gateways.length ? [["gateway", "درگاه پرداخت", CreditCard] as const] : []), ["card", "کارت به کارت", Landmark] as const]).map(([k, l, I]) => (
           <button key={k} type="button" onClick={() => setMethod(k)} className={cn("btn h-auto flex-col gap-2 py-4", method === k ? "btn-primary btn-soft border-2 border-primary" : "btn-outline border-base-300")}><I className="h-6 w-6" />{l}</button>
         ))}
       </div>
@@ -65,13 +82,13 @@ export function GiftPayForm({ id, phone, amount, card }: { id: number; phone: st
         <div className="space-y-2 rounded-box bg-base-200 p-4 text-sm">
           <div>{card.bank} · به نام {card.holder}</div>
           <div dir="ltr" className="font-mono text-lg font-bold">{faNum(card.number)}</div>
-          <input name="ref" dir="ltr" className="input w-full text-left" placeholder="شماره پیگیری واریز" />
+          <input name="ref" required dir="ltr" className="input w-full text-left" placeholder="شماره پیگیری واریز" />
         </div>
       ) : (
-        <p className="rounded-box bg-base-200 p-3 text-xs text-base-content/60">در نسخه نمایشی، پرداخت درگاه شبیه‌سازی می‌شود و کارت بلافاصله فعال می‌گردد.</p>
+        <div className="space-y-2">{gateways.length ? <><label className="field-label">انتخاب درگاه</label><select value={provider} onChange={(e) => setProvider(e.target.value)} className="select w-full">{gateways.map((g) => <option key={g.id} value={g.id}>{g.label}</option>)}</select><p className="rounded-box bg-base-200 p-3 text-xs text-base-content/60">کارت پس از تأیید پرداخت توسط درگاه فعال می‌شود.</p></> : null}</div>
       )}
       <Alert state={state} />
-      <button disabled={pending} className="btn btn-primary btn-block h-12">{pending && <span className="loading loading-spinner loading-sm" />} {method === "gateway" ? `پرداخت ${formatPrice(amount)} تومان` : "ثبت اطلاعات واریز"}</button>
+      <button disabled={pending} className="btn btn-primary btn-block h-12">{pending && <span className="loading loading-spinner loading-sm" />} {method === "gateway" ? `پرداخت ${formatPrice(amount)} تومان` : "ثبت رسید برای بررسی"}</button>
     </form>
   );
 }
