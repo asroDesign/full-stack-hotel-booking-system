@@ -175,7 +175,7 @@ export async function verifyAndSettlePayment(id: number, provider: PaymentGatewa
   const outcome = await db.transaction(async (tx) => {
     const [freshPayment] = await tx.select().from(paymentTransactions).where(eq(paymentTransactions.id, claimed.id)).for("update");
     if (!freshPayment) return { status: "failed" as const };
-    if (freshPayment.status === "success") return { status: "success" as const, reservationId: freshPayment.reservationId, giftCardId: freshPayment.giftCardId };
+    if (freshPayment.status === "success") return { status: "success" as const, reservationId: freshPayment.reservationId ?? undefined, giftCardId: freshPayment.giftCardId ?? undefined };
     if (freshPayment.status !== "verifying") return { status: "processing" as const };
 
     if (freshPayment.reservationId) {
