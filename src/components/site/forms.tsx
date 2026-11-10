@@ -105,7 +105,7 @@ export function PaymentPanel({
 }) {
   const [state, action, pending] = useActionState(payDeposit, null);
   const [method, setMethod] = useState<"gateway" | "card">(gateways.length ? "gateway" : "card");
-  const [provider, setProvider] = useState(gateways[0]?.id ?? "");
+  const [provider, setProvider] = useState<PaymentGatewayOption["id"]>(gateways[0]?.id ?? "zarinpal");
   const [copied, setCopied] = useState(false);
   const router = useRouter();
 
@@ -172,7 +172,7 @@ export function PaymentPanel({
         </div>
       ) : (
         <div className="space-y-3">
-          {gateways.length ? <><label className="field-label">انتخاب درگاه</label><select value={provider} onChange={(e) => setProvider(e.target.value)} className="select w-full">{gateways.map((g) => <option key={g.id} value={g.id}>{g.label}</option>)}</select><p className="rounded-xl bg-slate-50 p-3 text-xs leading-6 text-slate-500">پس از بازگشت از بانک، نتیجه از سرویس درگاه بررسی می‌شود.</p></> : <p className="rounded-xl bg-amber-50 p-3 text-xs leading-6 text-amber-800">درگاه اینترنتی هنوز تنظیم نشده است. برای پرداخت، رسید کارت‌به‌کارت را ثبت کنید.</p>}
+          {gateways.length ? <><label className="field-label">انتخاب درگاه</label><select value={provider} onChange={(e) => { const selected = gateways.find((gateway) => gateway.id === e.target.value); if (selected) setProvider(selected.id); }} className="select w-full">{gateways.map((g) => <option key={g.id} value={g.id}>{g.label}</option>)}</select><p className="rounded-xl bg-slate-50 p-3 text-xs leading-6 text-slate-500">پس از بازگشت از بانک، نتیجه از سرویس درگاه بررسی می‌شود.</p></> : <p className="rounded-xl bg-amber-50 p-3 text-xs leading-6 text-amber-800">درگاه اینترنتی هنوز تنظیم نشده است. برای پرداخت، رسید کارت‌به‌کارت را ثبت کنید.</p>}
         </div>
       )}
 

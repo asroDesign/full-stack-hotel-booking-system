@@ -65,7 +65,7 @@ export function GiftPayForm({ id, phone, amount, card, gateways }: { id: number;
   const router = useRouter();
   const [state, action, pending] = useActionState(payGiftCard, null);
   const [method, setMethod] = useState<"gateway" | "card">(gateways.length ? "gateway" : "card");
-  const [provider, setProvider] = useState(gateways[0]?.id ?? "");
+  const [provider, setProvider] = useState<PaymentGatewayOption["id"]>(gateways[0]?.id ?? "zarinpal");
   useEffect(() => {
     if (state?.redirect) { try { goToGiftGateway(state.redirect); } catch { router.refresh(); } }
     else if (state?.ok) router.refresh();
@@ -85,7 +85,7 @@ export function GiftPayForm({ id, phone, amount, card, gateways }: { id: number;
           <input name="ref" required dir="ltr" className="input w-full text-left" placeholder="شماره پیگیری واریز" />
         </div>
       ) : (
-        <div className="space-y-2">{gateways.length ? <><label className="field-label">انتخاب درگاه</label><select value={provider} onChange={(e) => setProvider(e.target.value)} className="select w-full">{gateways.map((g) => <option key={g.id} value={g.id}>{g.label}</option>)}</select><p className="rounded-box bg-base-200 p-3 text-xs text-base-content/60">کارت پس از تأیید پرداخت توسط درگاه فعال می‌شود.</p></> : null}</div>
+        <div className="space-y-2">{gateways.length ? <><label className="field-label">انتخاب درگاه</label><select value={provider} onChange={(e) => { const selected = gateways.find((gateway) => gateway.id === e.target.value); if (selected) setProvider(selected.id); }} className="select w-full">{gateways.map((g) => <option key={g.id} value={g.id}>{g.label}</option>)}</select><p className="rounded-box bg-base-200 p-3 text-xs text-base-content/60">کارت پس از تأیید پرداخت توسط درگاه فعال می‌شود.</p></> : null}</div>
       )}
       <Alert state={state} />
       <button disabled={pending} className="btn btn-primary btn-block h-12">{pending && <span className="loading loading-spinner loading-sm" />} {method === "gateway" ? `پرداخت ${formatPrice(amount)} تومان` : "ثبت رسید برای بررسی"}</button>
