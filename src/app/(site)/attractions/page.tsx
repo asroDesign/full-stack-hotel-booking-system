@@ -44,7 +44,7 @@ export default async function AttractionsPage() {
               title="موقعیت جاذبه‌ها نسبت به هتل"
               description="فاصله‌ها با خودروی شخصی محاسبه شده است. برای مسیریابی روی دکمه هر جاذبه بزنید."
             />
-            <MapPanel settings={settings} compact />
+            <MapPanel settings={{ mapLat: settings.mapLat, mapLng: settings.mapLng, mapAddress: settings.mapAddress, address: settings.address }} compact />
             <div className="rounded-2xl border border-gold-200 bg-gold-50 p-4 text-[11px] leading-6 text-gold-700">
               <p className="font-bold">🚐 تور یک‌روزه کاج</p>
               <p className="mt-1">

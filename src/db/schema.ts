@@ -1,6 +1,7 @@
 import {
   boolean,
   date,
+  index,
   integer,
   jsonb,
   pgTable,
@@ -142,6 +143,27 @@ export const bookings = pgTable("bookings", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+export const paymentTransactions = pgTable("payment_transactions", {
+  id: serial("id").primaryKey(),
+  bookingId: integer("booking_id").notNull().references(() => bookings.id, { onDelete: "restrict" }),
+  provider: text("provider").notNull(),
+  amount: integer("amount").notNull(),
+  authority: text("authority").unique(),
+  callbackTokenHash: text("callback_token_hash").notNull(),
+  callbackData: jsonb("callback_data").$type<{
+    refNum?: string;
+    terminalId?: string;
+    amount?: number;
+    saleOrderId?: number;
+    saleReferenceId?: number;
+  }>().notNull().default({}),
+  status: text("status").notNull().default("creating"),
+  refCode: text("ref_code"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  verifiedAt: timestamp("verified_at", { withTimezone: true }),
+}, (table) => [index("payment_transactions_booking_idx").on(table.bookingId, table.createdAt)]);
 
 /* -------------------------------- messages ------------------------------- */
 
@@ -423,6 +445,17 @@ export const settings = pgTable("settings", {
   diningNote: text("dining_note").notNull().default(""),
   cardNumber: text("card_number").notNull().default(""),
   cardHolder: text("card_holder").notNull().default(""),
+  paymentZarinpalEnabled: boolean("payment_zarinpal_enabled").notNull().default(false),
+  zarinpalMerchantId: text("zarinpal_merchant_id").notNull().default(""),
+  zarinpalSandbox: boolean("zarinpal_sandbox").notNull().default(false),
+  paymentZibalEnabled: boolean("payment_zibal_enabled").notNull().default(false),
+  zibalMerchant: text("zibal_merchant").notNull().default(""),
+  paymentSamanEnabled: boolean("payment_saman_enabled").notNull().default(false),
+  samanTerminalId: text("saman_terminal_id").notNull().default(""),
+  paymentMellatEnabled: boolean("payment_mellat_enabled").notNull().default(false),
+  mellatTerminalId: text("mellat_terminal_id").notNull().default(""),
+  mellatUsername: text("mellat_username").notNull().default(""),
+  mellatPassword: text("mellat_password").notNull().default(""),
   totalRooms: integer("total_rooms").notNull().default(16),
   heroMediaType: text("hero_media_type").notNull().default("image"),
   heroVideoUrl: text("hero_video_url"),

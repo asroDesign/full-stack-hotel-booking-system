@@ -9,6 +9,7 @@ import { getBookingByTracking, getSettings } from "@/lib/data";
 import { formatJalali, formatMoney, formatDateTime, toFa } from "@/lib/format";
 import { isDemoMode } from "@/lib/runtime-mode";
 import { clientIpFromHeaders, rateLimit } from "@/lib/rate-limit";
+import { getPaymentGatewayOptions } from "@/lib/payment-gateways";
 
 export const dynamic = "force-dynamic";
 
@@ -17,11 +18,13 @@ export const metadata: Metadata = {
   robots: { index: false },
 };
 
-export default async function BookingStatusPage({ params }: { params: Promise<{ code: string }> }) {
+export default async function BookingStatusPage({ params, searchParams }: { params: Promise<{ code: string }>; searchParams: Promise<{ payment?: string | string[] }> }) {
   const requestHeaders = await headers();
   const limited = rateLimit(`booking-page:${clientIpFromHeaders(requestHeaders)}`, 30, 10 * 60 * 1000);
   if (!limited.ok) notFound();
   const { code } = await params;
+  const query = await searchParams;
+  const paymentResult = Array.isArray(query.payment) ? query.payment[0] : query.payment;
   const [booking, settings] = await Promise.all([
     getBookingByTracking(code),
     getSettings(),
@@ -204,6 +207,8 @@ export default async function BookingStatusPage({ params }: { params: Promise<{ 
               prepaymentAmount={booking.prepaymentAmount}
               cardNumber={settings.cardNumber}
               demoMode={isDemoMode()}
+              gateways={getPaymentGatewayOptions(settings)}
+              paymentResult={paymentResult}
             />
           </div>
 

@@ -89,7 +89,7 @@ export function securityHeaders(): Record<string, string> {
       "frame-src 'self' https://www.openstreetmap.org https://www.google.com",
       "frame-ancestors 'self'",
       "base-uri 'self'",
-      "form-action 'self'",
+      "form-action 'self' https://sep.shaparak.ir",
     ].join("; "),
   };
 }

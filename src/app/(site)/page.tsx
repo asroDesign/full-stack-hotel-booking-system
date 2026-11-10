@@ -359,7 +359,7 @@ export default async function HomePage() {
             </div>
           </div>
           <div className="overflow-hidden rounded-2xl border border-white/70">
-            <MapPanel settings={settings} compact />
+            <MapPanel settings={{ mapLat: settings.mapLat, mapLng: settings.mapLng, mapAddress: settings.mapAddress, address: settings.address }} compact />
           </div>
         </div>
       </section>

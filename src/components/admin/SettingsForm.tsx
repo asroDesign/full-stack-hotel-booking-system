@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
 import type { Settings } from "@/db/schema";
 
-type FieldType = "text" | "textarea" | "number" | "select" | "lines" | "media";
+type FieldType = "text" | "password" | "textarea" | "number" | "select" | "lines" | "media";
 
 type SettingField = {
   key: keyof Settings & string;
@@ -189,6 +189,23 @@ const GROUPS: { title: string; description: string; fields: SettingField[] }[] =
       { key: "cardHolder", label: "صاحب کارت" },
     ],
   },
+  {
+    title: "درگاه‌های پرداخت اینترنتی",
+    description: "پیش از ذخیره شناسه‌ها و رمز پذیرنده، PAYMENT_CREDENTIALS_KEY را در سرور تنظیم کنید. درگاه فعال در صفحه پیگیری رزرو نمایش داده می‌شود؛ APP_URL باید HTTPS باشد.",
+    fields: [
+      { key: "paymentZarinpalEnabled", label: "فعال‌سازی زرین‌پال", type: "select", options: MODULE_OPTIONS, optionLabels: MODULE_LABELS },
+      { key: "zarinpalMerchantId", label: "شناسه پذیرنده زرین‌پال", type: "password", hint: "برای تغییر وارد کنید؛ مقدار خالی، مقدار ذخیره‌شده را حفظ می‌کند. در sandbox نیز شناسه پذیرنده لازم است." },
+      { key: "zarinpalSandbox", label: "محیط آزمایشی زرین‌پال", type: "select", options: MODULE_OPTIONS, optionLabels: MODULE_LABELS },
+      { key: "paymentZibalEnabled", label: "فعال‌سازی زیبال", type: "select", options: MODULE_OPTIONS, optionLabels: MODULE_LABELS },
+      { key: "zibalMerchant", label: "شناسه مرچنت زیبال", type: "password", hint: "برای تغییر وارد کنید؛ مقدار خالی، مقدار ذخیره‌شده را حفظ می‌کند." },
+      { key: "paymentSamanEnabled", label: "فعال‌سازی سامان", type: "select", options: MODULE_OPTIONS, optionLabels: MODULE_LABELS },
+      { key: "samanTerminalId", label: "شناسه پایانه سامان" },
+      { key: "paymentMellatEnabled", label: "فعال‌سازی به‌پرداخت ملت", type: "select", options: MODULE_OPTIONS, optionLabels: MODULE_LABELS },
+      { key: "mellatTerminalId", label: "شناسه پایانه ملت" },
+      { key: "mellatUsername", label: "نام کاربری پذیرنده ملت", type: "password", hint: "برای تغییر وارد کنید؛ مقدار خالی، مقدار ذخیره‌شده را حفظ می‌کند." },
+      { key: "mellatPassword", label: "رمز عبور پذیرنده ملت", type: "password", hint: "برای تغییر وارد کنید؛ مقدار خالی، مقدار ذخیره‌شده را حفظ می‌کند." },
+    ],
+  },
 ];
 
 type FormValue = string | number;
@@ -371,7 +388,8 @@ export default function SettingsForm({ initialSettings }: { initialSettings: Set
                 ) : (
                   <input
                     className="input text-xs"
-                    type={field.type === "number" ? "number" : "text"}
+                    type={field.type === "number" ? "number" : field.type === "password" ? "password" : "text"}
+                    autoComplete={field.type === "password" ? "new-password" : undefined}
                     dir={
                       field.key.includes("Image") ||
                       field.key.includes("Url") ||

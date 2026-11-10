@@ -59,7 +59,7 @@ export default async function ContactPage() {
           </div>
           <div className="space-y-4">
             <div id="map">
-              <MapPanel settings={settings} compact />
+              <MapPanel settings={{ mapLat: settings.mapLat, mapLng: settings.mapLng, mapAddress: settings.mapAddress, address: settings.address }} compact />
             </div>
             <div className="rounded-2xl border border-forest-100 bg-forest-50 p-4 text-[11px] leading-6 text-forest-800/75">
               <p className="font-bold text-forest-950">ساعت پاسخگویی پذیرش</p>

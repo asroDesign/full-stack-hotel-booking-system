@@ -3,6 +3,7 @@ import SettingsForm from "@/components/admin/SettingsForm";
 import { AdminPageHeader } from "@/components/admin/ui";
 import { getRooms, getSettings } from "@/lib/data";
 import { toFa } from "@/lib/format";
+import { redactPaymentCredentials } from "@/lib/payment-settings";
 
 export const dynamic = "force-dynamic";
 
@@ -42,7 +43,7 @@ export default async function AdminSettingsPage() {
         </div>
       </div>
 
-      <SettingsForm initialSettings={settings} />
+      <SettingsForm initialSettings={redactPaymentCredentials(settings)} />
     </div>
   );
 }

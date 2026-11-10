@@ -152,7 +152,7 @@ export default async function AboutPage() {
               </p>
             </div>
           </div>
-          <MapPanel settings={settings} compact />
+          <MapPanel settings={{ mapLat: settings.mapLat, mapLng: settings.mapLng, mapAddress: settings.mapAddress, address: settings.address }} compact />
         </div>
       </section>
     </>

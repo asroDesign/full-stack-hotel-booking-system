@@ -10,6 +10,7 @@ import {
   menuItems,
   messages,
   offers,
+  paymentTransactions,
   poolSlots,
   promoCodes,
   reviews,
@@ -23,6 +24,7 @@ import { safeUrl, sanitizeText } from "@/lib/security";
 import type { RoomAddon } from "@/db/schema";
 import { postBookingRevenue } from "@/lib/accounting";
 import { notifyGuestReservation, notifyGuestStatus } from "@/lib/sms";
+import { encryptPaymentCredential, isPrivatePaymentField } from "@/lib/payment-settings";
 
 type Body = Record<string, unknown>;
 
@@ -728,6 +730,11 @@ export async function deleteResource(
         await db.delete(messages).where(eq(messages.id, id));
         break;
       case "bookings":
+        {
+          const [payment] = await db.select({ id: paymentTransactions.id }).from(paymentTransactions)
+            .where(eq(paymentTransactions.bookingId, id)).limit(1);
+          if (payment) return { ok: false, error: "رزروی که سابقهٔ پرداخت اینترنتی دارد حذف نمی‌شود؛ وضعیت آن را لغو کنید تا سابقهٔ مالی حفظ شود." };
+        }
         await db.delete(bookings).where(eq(bookings.id, id));
         break;
       case "pool-slots":
@@ -793,6 +800,12 @@ const SETTINGS_TEXT_FIELDS = [
   "poolImage",
   "cardNumber",
   "cardHolder",
+  "zarinpalMerchantId",
+  "zibalMerchant",
+  "samanTerminalId",
+  "mellatTerminalId",
+  "mellatUsername",
+  "mellatPassword",
   "city",
   "diningTitle",
   "diningSubtitle",
@@ -850,6 +863,7 @@ export async function updateSettings(body: Body) {
   const patch: Record<string, unknown> = { updatedAt: new Date() };
   SETTINGS_TEXT_FIELDS.forEach((field) => {
     if (!(field in body)) return;
+    if (isPrivatePaymentField(field) && !sanitizeText(body[field], 255)) return;
     patch[field] = SETTINGS_URL_FIELDS.has(field) ? safeUrl(body[field]) : sanitizeText(body[field], 4000);
   });
   if ("poolPrice" in body) patch.poolPrice = Math.max(0, num(body.poolPrice));
@@ -860,6 +874,18 @@ export async function updateSettings(body: Body) {
   if ("moduleRestaurant" in body) patch.moduleRestaurant = bool(body.moduleRestaurant);
   if ("moduleCafe" in body) patch.moduleCafe = bool(body.moduleCafe);
   if ("moduleSpa" in body) patch.moduleSpa = bool(body.moduleSpa);
+  for (const field of ["paymentZarinpalEnabled", "paymentZibalEnabled", "paymentSamanEnabled", "paymentMellatEnabled", "zarinpalSandbox"] as const) {
+    if (field in body) patch[field] = bool(body[field]);
+  }
+  for (const field of ["zarinpalMerchantId", "zibalMerchant", "samanTerminalId", "mellatTerminalId", "mellatUsername", "mellatPassword"] as const) {
+    if (!(field in body)) continue;
+    const value = sanitizeText(body[field], 255);
+    if (isPrivatePaymentField(field) && !value) continue;
+    if (field === "zarinpalMerchantId" && value && !/^[0-9a-f-]{36}$/i.test(value)) throw new Error("شناسه پذیرنده زرین‌پال معتبر نیست.");
+    if (field === "zibalMerchant" && value && !/^[A-Za-z0-9_-]{1,100}$/.test(value)) throw new Error("شناسه مرچنت زیبال معتبر نیست.");
+    if ((field === "samanTerminalId" || field === "mellatTerminalId") && value && !/^\d{1,15}$/.test(value)) throw new Error("شناسه پایانه باید فقط شامل رقم باشد.");
+    patch[field] = isPrivatePaymentField(field) ? encryptPaymentCredential(value) : value;
+  }
   if ("poolBaseCapacity" in body) patch.poolBaseCapacity = Math.max(1, num(body.poolBaseCapacity, 8));
   if ("poolMaxCapacity" in body)
     patch.poolMaxCapacity = Math.max(num(body.poolBaseCapacity, 8), num(body.poolMaxCapacity, 12));

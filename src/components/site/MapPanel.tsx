@@ -1,14 +1,15 @@
 "use client";
 
 import { useState } from "react";
-import type { Settings } from "@/db/schema";
 import { toFa } from "@/lib/format";
 
 /**
  * Map panel loads OpenStreetMap tiles only when the guest asks for them.
  * This keeps third-party requests and JS paint work out of the critical path.
  */
-export default function MapPanel({ settings, compact = false }: { settings: Settings; compact?: boolean }) {
+type MapSettings = { mapLat: string; mapLng: string; mapAddress: string; address: string };
+
+export default function MapPanel({ settings, compact = false }: { settings: MapSettings; compact?: boolean }) {
   const [visible, setVisible] = useState(false);
   const lat = Number(settings.mapLat) || 37.2719;
   const lng = Number(settings.mapLng) || 55.4323;
