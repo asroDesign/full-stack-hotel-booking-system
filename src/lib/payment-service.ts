@@ -236,7 +236,7 @@ export async function verifyAndSettlePayment(id: number, provider: PaymentGatewa
     const [reservation] = await db.select({ trackingCode: reservations.trackingCode }).from(reservations).where(eq(reservations.id, outcome.reservationId)).limit(1);
     return { status: "success", trackingCode: reservation?.trackingCode };
   }
-  if (outcome.status === "success" && outcome.giftCardId && "gift" in outcome) {
+  if (outcome.status === "success" && outcome.giftCardId && "gift" in outcome && outcome.gift) {
     const gift = outcome.gift;
     try {
       if (gift.issuedBy !== "complimentary") await createVoucher({
