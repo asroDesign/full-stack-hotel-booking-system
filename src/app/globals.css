@@ -962,3 +962,52 @@ dd {
     transform: translateY(42px);
   }
 }
+
+
+@media screen {
+  .payslip-print { display: none !important; }
+}
+
+@page {
+  size: A4;
+  margin: 12mm;
+}
+
+@media print {
+  body { background: #fff !important; }
+  body * { visibility: hidden !important; }
+  .payslip-print, .payslip-print * { visibility: visible !important; }
+  .payslip-print {
+    display: block !important;
+    position: fixed !important;
+    inset: 0 !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
+    color: #111827 !important;
+    background: #fff !important;
+    direction: rtl !important;
+    font-family: inherit;
+    font-size: 10pt;
+    line-height: 1.7;
+  }
+  .payslip-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 20px; border-bottom: 2px solid #17665e; padding-bottom: 12px; }
+  .payslip-header h1 { margin: 4px 0; font-size: 20pt; font-weight: 800; }
+  .payslip-hotel { font-weight: 700; color: #17665e; }
+  .payslip-period { display: grid; gap: 3px; text-align: left; }
+  .payslip-muted, .payslip-grid span, .payslip-metrics span, .payslip-payment span { color: #64748b; font-size: 8.5pt; }
+  .payslip-block { margin-top: 12px; break-inside: avoid; }
+  .payslip-block h2 { margin: 0 0 6px; font-size: 11pt; font-weight: 800; }
+  .payslip-grid, .payslip-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 7px; }
+  .payslip-grid > div, .payslip-metrics > div { display: grid; gap: 1px; padding: 6px 8px; border: 1px solid #dbe3e8; border-radius: 6px; }
+  .payslip-table { width: 100%; border-collapse: collapse; font-size: 8.5pt; }
+  .payslip-table th, .payslip-table td { border: 1px solid #dbe3e8; padding: 4px 7px; text-align: right; }
+  .payslip-table th { background: #f1f5f6 !important; }
+  .payslip-total { font-weight: 800; background: #f8fafc !important; }
+  .payslip-insurance { margin-top: 6px; }
+  .payslip-net { display: flex; justify-content: space-between; align-items: center; margin-top: 14px; padding: 10px 14px; border: 2px solid #17665e; border-radius: 8px; font-size: 13pt; font-weight: 800; }
+  .payslip-payment { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 8px; padding: 8px; background: #f8fafc !important; }
+  .payslip-payment > div { display: grid; gap: 2px; }
+  .payslip-notes { margin-top: 8px; border: 1px solid #dbe3e8; padding: 7px; white-space: pre-line; }
+  .payslip-signatures { display: flex; justify-content: space-between; margin-top: 28px; }
+  .payslip-signatures > div { width: 40%; min-height: 48px; border-top: 1px solid #94a3b8; padding-top: 5px; text-align: center; }
+}

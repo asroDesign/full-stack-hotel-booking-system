@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { toJalaali } from "jalaali-js";
 import { JalaliDatePicker } from "@/components/jalali-date-picker";
 import { faNum, formatJalali } from "@/lib/utils";
+import { PayrollPayslip } from "@/components/admin/payroll-payslip";
 import type { PayrollPolicyCore, TaxBand } from "@/lib/hotel-payroll-core";
 import { applyShiftTemplate, approvePayrollPeriod, assignShift, createLeaveRequest, createPayrollAdjustment, createPayrollLeave, createShiftSwapRequest, decideLeaveRequest, decidePayrollAdjustment, decidePayrollLeave, decideShiftSwap, generateJalaliPayroll, markPayrollPaid, punchAttendance, removeShiftAssignment, savePayrollPolicy, saveShift, saveShiftTemplate, saveStaff, setAttendanceStatus, toggleShiftTemplate, updatePayrollEntry } from "@/app/actions/staff";
 import type { hotelAttendance, hotelAttendanceEvents, hotelLeaveRequests, hotelPayrollAdjustments, hotelPayrollEntries, hotelPayrollLeaves, hotelPayrollPeriods, hotelShiftAssignments, hotelShiftSwapRequests, hotelShiftTemplates, hotelShifts, hotelStaff } from "@/db/schema";
@@ -11,7 +12,7 @@ import type { hotelAttendance, hotelAttendanceEvents, hotelLeaveRequests, hotelP
 type Staff = typeof hotelStaff.$inferSelect;
 type Shift = typeof hotelShifts.$inferSelect;
 type Schedule = { assignment: typeof hotelShiftAssignments.$inferSelect; staff: Staff; shift: Shift; attendance: typeof hotelAttendance.$inferSelect | null };
-type Payroll = { entry: typeof hotelPayrollEntries.$inferSelect; period: typeof hotelPayrollPeriods.$inferSelect; staff: Staff };
+export type Payroll = { entry: typeof hotelPayrollEntries.$inferSelect; period: typeof hotelPayrollPeriods.$inferSelect; staff: Staff };
 type Template = { template: typeof hotelShiftTemplates.$inferSelect; staff: Staff; shift: Shift };
 type Leave = { request: typeof hotelLeaveRequests.$inferSelect; staff: Staff };
 type PayrollLeave = { leave: typeof hotelPayrollLeaves.$inferSelect; staff: Staff };
@@ -316,7 +317,7 @@ function InsuranceSection({ staff, payroll, search, setSearch }: { staff: Staff[
   </section>;
 }
 
-export function StaffAdmin({ staff, shifts, schedule, payroll, day, currentJalaliYear, templates, leaveRequests, swaps, adjustments, payrollLeaves, policy, attendanceEvents }: { staff: Staff[]; shifts: Shift[]; schedule: Schedule[]; payroll: Payroll[]; day: string; currentJalaliYear: number; templates: Template[]; leaveRequests: Leave[]; swaps: Swap[]; adjustments: Adjustment[]; payrollLeaves: PayrollLeave[]; policy: PayrollPolicyCore; attendanceEvents: AttendanceEvent[] }) {
+export function StaffAdmin({ staff, shifts, schedule, payroll, day, currentJalaliYear, templates, leaveRequests, swaps, adjustments, payrollLeaves, policy, attendanceEvents, hotelName }: { staff: Staff[]; shifts: Shift[]; schedule: Schedule[]; payroll: Payroll[]; day: string; currentJalaliYear: number; templates: Template[]; leaveRequests: Leave[]; swaps: Swap[]; adjustments: Adjustment[]; payrollLeaves: PayrollLeave[]; policy: PayrollPolicyCore; attendanceEvents: AttendanceEvent[]; hotelName: string }) {
   const [activeTab, setActiveTab] = useState<"people" | "insurance" | "shifts" | "payroll">("people");
   const [shiftTab, setShiftTab] = useState<"definitions" | "templates" | "schedule" | "swaps">("definitions");
   const [payrollTab, setPayrollTab] = useState<"list" | "extras" | "policy">("list");
@@ -326,6 +327,7 @@ export function StaffAdmin({ staff, shifts, schedule, payroll, day, currentJalal
   const { jm: currentMonth } = toJalaali(...day.split("-").map(Number) as [number, number, number]);
   const [payrollYear, setPayrollYear] = useState(currentJalaliYear);
   const [payrollMonth, setPayrollMonth] = useState(currentMonth);
+  const [printEntryId, setPrintEntryId] = useState<number | null>(null);
   const periods = Array.from(new Map(payroll.map((row) => [row.period.id, row.period])).values());
   const latestPayroll = new Map<number, Payroll>();
   for (const row of payroll) if (!latestPayroll.has(row.staff.id)) latestPayroll.set(row.staff.id, row);
@@ -366,6 +368,15 @@ export function StaffAdmin({ staff, shifts, schedule, payroll, day, currentJalal
     }
   }, []);
 
+  useEffect(() => {
+    if (printEntryId === null) return;
+    const finishPrint = () => setPrintEntryId(null);
+    window.addEventListener("afterprint", finishPrint);
+    const timer = window.setTimeout(() => window.print(), 150);
+    return () => { window.clearTimeout(timer); window.removeEventListener("afterprint", finishPrint); };
+  }, [printEntryId]);
+
+  const printablePayroll = printEntryId === null ? undefined : payroll.find((row) => row.entry.id === printEntryId);
   const mainTabs = [["people", "نیروی انسانی"], ["insurance", "بیمه"], ["shifts", "شیفت‌ها"], ["payroll", "حقوق و دستمزد"]] as const;
   const shiftTabs = [["definitions", "تعریف شیفت"], ["templates", "الگوهای هفتگی"], ["schedule", "برنامه و حضور"], ["swaps", "جابه‌جایی شیفت"]] as const;
   const payrollTabs = [["list", "لیست حقوق ماهانه"], ["extras", "مرخصی، تشویقی و جریمه"], ["policy", "تنظیمات قانونی سالانه"]] as const;
@@ -432,7 +443,7 @@ export function StaffAdmin({ staff, shifts, schedule, payroll, day, currentJalal
           const netTotal = rows.reduce((sum, row) => sum + row.entry.netToman, 0);
           return <section key={period.id} className="overflow-hidden rounded-2xl border border-base-300 bg-base-100 shadow-sm"><div className="flex flex-wrap items-center justify-between gap-3 border-b border-base-200 bg-base-200/30 p-4"><div><h4 className="font-extrabold">{period.title}</h4><div className="mt-1 text-xs text-base-content/60">{formatJalali(period.dateFrom)} تا {formatJalali(period.dateTo)} · {faNum(rows.length)} نفر</div></div><div className="flex flex-wrap items-center gap-2"><span className={`badge ${period.status === "paid" ? "badge-success" : period.status === "approved" ? "badge-info" : "badge-warning"}`}>{period.status === "paid" ? "پرداخت‌شده" : period.status === "approved" ? "تأییدشده" : "پیش‌نویس"}</span>{period.status === "draft" && <>{period.jalaliYear > 0 && <form action={generateJalaliPayroll}><input type="hidden" name="jalaliYear" value={period.jalaliYear} /><input type="hidden" name="jalaliMonth" value={period.jalaliMonth} /><input type="hidden" name="rebuild" value="on" /><button className="btn btn-sm btn-outline rounded-xl">بازسازی محاسبه</button></form>}<form action={approvePayrollPeriod}><input type="hidden" name="id" value={period.id} /><button className="btn btn-sm btn-primary rounded-xl">تأیید لیست</button></form></>}</div></div>
             <div className="grid gap-3 border-b border-base-200 p-4 sm:grid-cols-3"><div className="rounded-xl bg-base-200/50 p-3 text-xs">جمع ناخالص <b className="mt-1 block text-sm">{money(grossTotal)}</b></div><div className="rounded-xl bg-base-200/50 p-3 text-xs">خالص پرداختی <b className="mt-1 block text-sm">{money(netTotal)}</b></div><div className="rounded-xl bg-base-200/50 p-3 text-xs">افراد دارای ردیف حقوق <b className="mt-1 block text-sm">{faNum(rows.length)} نفر</b></div></div>
-            <div className="overflow-x-auto"><table className="table table-zebra"><thead><tr><th>کارمند</th><th>کارکرد</th><th>اضافه‌کاری</th><th>بیمه</th><th>مالیات</th><th>خالص پرداختی</th><th>جزئیات</th></tr></thead><tbody>{rows.map((row) => <tr key={row.entry.id}><td className="font-bold">{row.staff.fullName}<div className="text-xs font-normal text-base-content/60">{row.staff.jobTitle || dutyLabel[row.staff.duty]}</div></td><td>{faNum(Math.round(row.entry.regularMinutes / 60))} ساعت</td><td>{faNum(Math.round(row.entry.overtimeMinutes / 60))} ساعت</td><td>{money(row.entry.employeeInsuranceToman)}</td><td>{money(row.entry.incomeTaxToman)}</td><td className="font-extrabold text-primary">{money(row.entry.netToman)}{row.entry.paymentStatus === "paid" && <span className="badge badge-success badge-sm ms-2">پرداخت شد</span>}</td><td><PayrollEditor row={row} /></td></tr>)}</tbody></table></div>
+            <div className="overflow-x-auto"><table className="table table-zebra"><thead><tr><th>کارمند</th><th>کارکرد</th><th>اضافه‌کاری</th><th>بیمه</th><th>مالیات</th><th>خالص پرداختی</th><th>جزئیات</th></tr></thead><tbody>{rows.map((row) => <tr key={row.entry.id}><td className="font-bold">{row.staff.fullName}<div className="text-xs font-normal text-base-content/60">{row.staff.jobTitle || dutyLabel[row.staff.duty]}</div></td><td>{faNum(Math.round(row.entry.regularMinutes / 60))} ساعت</td><td>{faNum(Math.round(row.entry.overtimeMinutes / 60))} ساعت</td><td>{money(row.entry.employeeInsuranceToman)}</td><td>{money(row.entry.incomeTaxToman)}</td><td className="font-extrabold text-primary">{money(row.entry.netToman)}{row.entry.paymentStatus === "paid" && <span className="badge badge-success badge-sm ms-2">پرداخت شد</span>}</td><td><div className="flex min-w-40 flex-col gap-2"><button type="button" className="btn btn-sm btn-outline btn-primary" onClick={() => setPrintEntryId(row.entry.id)}>چاپ فیش حقوقی</button><PayrollEditor row={row} /></div></td></tr>)}</tbody></table></div>
           </section>;
         })}
       </div>}
@@ -442,5 +453,6 @@ export function StaffAdmin({ staff, shifts, schedule, payroll, day, currentJalal
       </div>}
       {payrollTab === "policy" && <PayrollPolicySection policy={policy} />}
     </section>}
+    {printablePayroll && <PayrollPayslip row={printablePayroll} hotelName={hotelName} />}
   </div>;
 }

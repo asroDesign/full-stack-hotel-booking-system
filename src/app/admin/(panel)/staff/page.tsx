@@ -6,6 +6,7 @@ import { PageHeader } from "@/components/admin/ui";
 import { StaffAdmin } from "@/components/admin/staff-admin";
 import { hotelBusinessDate } from "@/lib/hotel-operations";
 import { defaultPayrollPolicy } from "@/lib/hotel-payroll-core";
+import { getSettings } from "@/lib/data";
 
 export const dynamic = "force-dynamic";
 
@@ -18,7 +19,8 @@ export default async function StaffPage({ searchParams }: { searchParams: Promis
   const { jy: currentJalaliYear } = toJalaali(parts[0], parts[1], parts[2]);
   const requestedPolicyYear = Number(params.policyYear);
   const policyYear = Number.isInteger(requestedPolicyYear) && requestedPolicyYear >= 1300 && requestedPolicyYear <= 1600 ? requestedPolicyYear : currentJalaliYear;
-  const [staff, shifts, schedule, payroll, templates, leaveRequests, swaps, adjustments, payrollLeaves, policy, attendanceEvents] = await Promise.all([
+  const [siteSettings, staff, shifts, schedule, payroll, templates, leaveRequests, swaps, adjustments, payrollLeaves, policy, attendanceEvents] = await Promise.all([
+    getSettings(),
     db.select().from(hotelStaff).orderBy(asc(hotelStaff.fullName)),
     db.select().from(hotelShifts).orderBy(asc(hotelShifts.startTime)),
     db.select({ assignment: hotelShiftAssignments, staff: hotelStaff, shift: hotelShifts, attendance: hotelAttendance })
@@ -57,7 +59,7 @@ export default async function StaffPage({ searchParams }: { searchParams: Promis
     <div className="space-y-2">
       <PageHeader title="نیروی انسانی، شیفت و حقوق" desc="تعریف نیرو و برنامه کاری، ثبت حضور و غیاب و آماده‌سازی و تسویه حقوق" />
       {params.error && <div role="alert" className="alert alert-error mb-4">{params.error}</div>}
-      <StaffAdmin staff={staff} shifts={shifts} schedule={schedule} payroll={payroll} day={day} currentJalaliYear={currentJalaliYear} templates={templates} leaveRequests={leaveRequests} swaps={swaps} adjustments={adjustments} payrollLeaves={payrollLeaves} policy={policy ?? defaultPayrollPolicy(policyYear)} attendanceEvents={attendanceEvents} />
+      <StaffAdmin staff={staff} shifts={shifts} schedule={schedule} payroll={payroll} day={day} currentJalaliYear={currentJalaliYear} templates={templates} leaveRequests={leaveRequests} swaps={swaps} adjustments={adjustments} payrollLeaves={payrollLeaves} policy={policy ?? defaultPayrollPolicy(policyYear)} attendanceEvents={attendanceEvents} hotelName={siteSettings.hotelName} />
     </div>
   );
 }
