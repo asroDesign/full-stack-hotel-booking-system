@@ -406,8 +406,8 @@ export function StaffAdmin({ staff, shifts, schedule, payroll, day, currentJalal
       </div>
     </section>
 
-    <div role="tablist" aria-label="بخش‌های نیروی انسانی" className="tabs tabs-boxed w-full flex-wrap rounded-2xl border border-base-300 bg-base-100 p-1.5 shadow-sm">
-      {mainTabs.map(([id, label]) => <button key={id} type="button" role="tab" aria-selected={activeTab === id} className={`tab flex-1 rounded-xl font-bold ${activeTab === id ? "tab-active" : ""}`} onClick={() => selectMainTab(id)}>{label}</button>)}
+    <div role="tablist" aria-label="بخش‌های نیروی انسانی" className="tabs tabs-boxed w-full flex-wrap gap-1 rounded-2xl border border-base-300 bg-base-200/70 p-1.5 shadow-inner">
+      {mainTabs.map(([id, label]) => <button key={id} type="button" role="tab" aria-selected={activeTab === id} className={`tab h-11 min-w-[132px] flex-1 rounded-xl border border-transparent font-bold text-base-content/65 transition-all duration-200 hover:bg-base-100 hover:text-base-content focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 ${activeTab === id ? "border-primary/20 bg-primary text-primary-content shadow-md shadow-primary/20" : ""}`} onClick={() => selectMainTab(id)}>{label}</button>)}
     </div>
 
     {activeTab === "people" && <section id="people" role="tabpanel" className="space-y-4">
@@ -427,8 +427,8 @@ export function StaffAdmin({ staff, shifts, schedule, payroll, day, currentJalal
 
     {activeTab === "shifts" && <section id="shifts" role="tabpanel" className="space-y-4">
       <div><h3 className="text-xl font-extrabold">مدیریت شیفت و حضور</h3><p className="mt-1 text-sm text-base-content/60">از تعریف ساعت کاری تا برنامهٔ نیروها و ثبت ورود و خروج.</p></div>
-      <div role="tablist" aria-label="بخش‌های شیفت" className="tabs tabs-bordered w-full overflow-x-auto whitespace-nowrap">
-        {shiftTabs.map(([id, label]) => <button key={id} type="button" role="tab" aria-selected={shiftTab === id} className={`tab font-semibold ${shiftTab === id ? "tab-active" : ""}`} onClick={() => selectShiftTab(id)}>{label}</button>)}
+      <div role="tablist" aria-label="بخش‌های شیفت" className="flex w-full gap-1 overflow-x-auto rounded-2xl border border-base-300/80 bg-base-200/70 p-1.5 shadow-inner">
+        {shiftTabs.map(([id, label]) => <button key={id} type="button" role="tab" aria-selected={shiftTab === id} className={`tab h-10 flex-none rounded-xl px-4 font-semibold transition-all duration-200 hover:bg-base-100/80 hover:text-base-content focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 ${shiftTab === id ? "bg-base-100 text-primary shadow-sm ring-1 ring-primary/25" : "text-base-content/60"}`} onClick={() => selectShiftTab(id)}>{label}</button>)}
       </div>
       {shiftTab === "definitions" && <div className="space-y-4">
         <div className="flex flex-wrap items-end justify-between gap-3"><div><h4 className="font-bold">تعریف ساعت‌های کاری</h4><p className="mt-1 text-xs text-base-content/60">پایان قبل از شروع، شیفت شبانه محسوب می‌شود.</p></div><details className="dropdown dropdown-end"><summary className="btn btn-primary btn-sm rounded-xl">تعریف شیفت تازه</summary><div className="dropdown-content z-20 mt-3 w-[min(92vw,760px)] rounded-2xl border border-base-300 bg-base-100 p-4 shadow-2xl"><ShiftForm /></div></details></div>
