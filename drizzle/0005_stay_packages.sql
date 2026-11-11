@@ -17,4 +17,3 @@ ALTER TABLE "reservations" ADD COLUMN "stay_package_id" integer;--> statement-br
 ALTER TABLE "reservations" ADD COLUMN "stay_package_name" text DEFAULT '' NOT NULL;--> statement-breakpoint
 ALTER TABLE "reservations" ADD COLUMN "stay_package_price" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
 ALTER TABLE "reservations" ADD CONSTRAINT "reservations_stay_package_id_stay_packages_id_fk" FOREIGN KEY ("stay_package_id") REFERENCES "public"."stay_packages"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "payment_transactions" ADD CONSTRAINT "payment_transactions_positive_amount_check" CHECK ("payment_transactions"."amount" > 0);
