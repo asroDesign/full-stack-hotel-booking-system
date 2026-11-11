@@ -390,7 +390,7 @@ export async function journalBook(from: string, to: string, opts: { source?: str
   await ensureAccounts();
   const conds = [gte(journalEntries.date, from), lte(journalEntries.date, to)];
   if (opts.source) conds.push(eq(journalEntries.source, opts.source));
-  if (opts.q) conds.push(sql`${journalEntries.description} ilike ${"%" + opts.q + "%"}`);
+  if (opts.q) conds.push(sql`(${journalEntries.description} ilike ${"%" + opts.q + "%"} or cast(${journalEntries.id} as text) ilike ${"%" + opts.q + "%"})`);
   const entries = await db
     .select()
     .from(journalEntries)

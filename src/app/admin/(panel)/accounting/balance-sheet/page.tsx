@@ -24,7 +24,7 @@ export default async function BalanceSheetPage({ searchParams }: { searchParams:
     { title: "حقوق صاحبان سرمایه", rows: equity, total: equityTotal, tone: "text-secondary" },
   ];
   return <div>
-    <AsOfToolbar date={date} />
+    <AsOfToolbar date={date} exportHref={`/api/accounting/export?report=bs&to=${date}`} />
     <div className="card card-border bg-base-100 shadow-sm"><div className="card-body gap-5 p-4 md:p-7">
       <div className="text-center"><h2 className="text-xl font-black">ترازنامه</h2><p className="mt-1 text-sm text-base-content/55">وضعیت مالی تا پایان {formatJalali(date)}</p></div>
       <div className="grid gap-5 lg:grid-cols-2">

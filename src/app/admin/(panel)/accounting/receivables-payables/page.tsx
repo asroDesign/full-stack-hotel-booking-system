@@ -10,7 +10,7 @@ export default async function ReceivablesPayablesPage({ searchParams }: { search
   const receivables = rows.filter((row) => row.type === "asset" && row.code.startsWith("13")).map((row) => ({ ...row, balance: row.balDebit - row.balCredit }));
   const payables = rows.filter((row) => row.type === "liability" && row.code.startsWith("21")).map((row) => ({ ...row, balance: row.balCredit - row.balDebit }));
   return <div>
-    <AsOfToolbar date={date} />
+    <AsOfToolbar date={date} exportHref={`/api/accounting/export?report=arap&to=${date}`} />
     <div className="mb-4 text-center"><h2 className="text-xl font-black">گزارش دریافتنی‌ها و پرداختنی‌ها</h2><p className="mt-1 text-sm text-base-content/55">مانده حساب‌های دریافتنی و بدهی‌های ثبت‌شده تا {formatJalali(date)}</p></div>
     <div className="grid gap-5 xl:grid-cols-2">
       <Report title="حساب‌های دریافتنی" rows={receivables} date={date} nature="debit" />

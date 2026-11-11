@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import { Download, Printer, Plus, Trash2, Pencil, FolderTree, ArrowDownCircle, ArrowUpCircle, FileText, Scale } from "lucide-react";
 import { deleteAccount, deleteVoucher, recordGatewaySettlement, reverseVoucher, saveEditedVoucher, saveAccount, saveCostCenter, setCostCenterActive, saveManualVoucher, saveQuickEntry } from "@/app/actions/accounting";
 import { JalaliDatePicker } from "@/components/jalali-date-picker";
@@ -13,7 +13,7 @@ export type AccRow = { id: number; code: string; name: string; level: number; ty
 export type CostCenterOption = { id: number; code: string; name: string; isActive: boolean };
 
 const tabs = [
-  { href: "/admin/accounting", label: "داشبورد مالی" },
+  { href: "/admin/accounting", label: "اسناد صادرشده" },
   { href: "/admin/accounting/entry", label: "ثبت درآمد، هزینه و سند" },
   { href: "/admin/accounting/gateway-settlements", label: "تسویه درگاه" },
   { href: "/admin/accounting/journal", label: "دفتر روزنامه" },
@@ -93,7 +93,7 @@ export function ReportToolbar({ from, to, exportHref, children }: { from: string
         </div>
         {children}
         <div className="flex-1" />
-        {exportHref && <a href={exportHref} className="btn btn-sm btn-soft btn-success"><Download className="h-4 w-4" /> خروجی Excel (CSV)</a>}
+        {exportHref && <a href={exportHref} className="btn btn-sm btn-soft btn-success"><Download className="h-4 w-4" /> خروجی اکسل (.xlsx)</a>}
         <button type="button" onClick={() => window.print()} className="btn btn-sm"><Printer className="h-4 w-4" /> چاپ / PDF</button>
       </div>
     </div>
@@ -101,7 +101,7 @@ export function ReportToolbar({ from, to, exportHref, children }: { from: string
 }
 
 
-export function JournalFilters({ source, query }: { source: string; query: string }) {
+export function JournalFilters({ source, query, action = "/admin/accounting/journal" }: { source: string; query: string; action?: string }) {
   const router = useRouter();
   const search = useSearchParams();
   return (
@@ -113,7 +113,7 @@ export function JournalFilters({ source, query }: { source: string; query: strin
       const nextQuery = String(data.get("q") ?? "").trim();
       if (nextSource === "all") params.delete("source"); else params.set("source", nextSource);
       if (nextQuery) params.set("q", nextQuery); else params.delete("q");
-      router.push(`/admin/accounting/journal?${params.toString()}`);
+      router.push(`${action}?${params.toString()}`);
     }}>
       <div className="card-body flex-row flex-wrap items-end gap-3 p-4">
         <label className="form-control"><span className="field-label">نوع سند</span><select className="select select-sm" name="source" defaultValue={source}><option value="all">همه اسناد</option><option value="reservation">رزرو</option><option value="income">درآمد</option><option value="expense">هزینه</option><option value="manual">دستی</option><option value="payroll">حقوق و بیمه</option></select></label>
@@ -124,13 +124,13 @@ export function JournalFilters({ source, query }: { source: string; query: strin
   );
 }
 
-export function AsOfToolbar({ date, children }: { date: string; children?: React.ReactNode }) {
+export function AsOfToolbar({ date, exportHref, children }: { date: string; exportHref?: string; children?: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
   const search = useSearchParams();
   return <div className="card card-border mb-4 bg-base-100 shadow-sm print:hidden"><div className="card-body flex-row flex-wrap items-end gap-3 p-4">
     <div className="w-48"><JalaliDatePicker name="to" label="مانده تا تاریخ" value={date} onChange={(value) => { const params = new URLSearchParams(search.toString()); params.set("to", value); router.push(`${pathname}?${params.toString()}`); }} /></div>
-    {children}<div className="flex-1" /><button type="button" onClick={() => window.print()} className="btn btn-sm"><Printer className="h-4 w-4" /> چاپ / PDF</button>
+    {children}<div className="flex-1" />{exportHref && <a href={exportHref} className="btn btn-sm btn-soft btn-success"><Download className="h-4 w-4" /> خروجی اکسل (.xlsx)</a>}<button type="button" onClick={() => window.print()} className="btn btn-sm"><Printer className="h-4 w-4" /> چاپ / PDF</button>
   </div></div>;
 }
 
@@ -243,10 +243,36 @@ export function QuickEntryForm({ accounts, costCenters }: { accounts: AccRow[]; 
   );
 }
 
+export function AccountingEntryWorkspace({ accounts, costCenters }: { accounts: AccRow[]; costCenters: CostCenterOption[] }) {
+  const pathname = usePathname();
+  const [manualOpen, setManualOpen] = useState(false);
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("manual") === "1") setManualOpen(true);
+  }, []);
+  const closeManual = () => {
+    setManualOpen(false);
+    const url = new URL(window.location.href);
+    url.searchParams.delete("manual");
+    window.history.replaceState(window.history.state, "", `${pathname}${url.search}${url.hash}`);
+  };
+
+  return <div className="space-y-5">
+    <section className="flex flex-wrap items-center justify-between gap-3 rounded-3xl border border-primary/15 bg-gradient-to-l from-primary/10 via-base-100 to-base-100 p-5 shadow-sm">
+      <div><h2 className="text-xl font-black">ثبت‌های روزمره حسابداری</h2><p className="mt-1 text-sm text-base-content/60">درآمد و هزینه را سریع ثبت کنید؛ برای ثبت چندآرتیکلی، سند دستی را باز کنید.</p></div>
+      <button type="button" onClick={() => setManualOpen(true)} className="btn btn-primary rounded-xl"><FileText className="h-4 w-4" /> ثبت سند دستی</button>
+    </section>
+    <div className="grid gap-5 xl:grid-cols-[minmax(0,1.35fr)_minmax(270px,.65fr)]">
+      <QuickEntryForm accounts={accounts} costCenters={costCenters} />
+      <aside className="card card-border h-fit bg-base-100 shadow-sm"><div className="card-body gap-3 p-5"><span className="grid h-11 w-11 place-items-center rounded-2xl bg-primary/10 text-primary"><Scale className="h-5 w-5" /></span><h3 className="font-extrabold">ثبت سند چندردیفی</h3><p className="text-sm leading-6 text-base-content/60">برای ثبت انتقال بین چند حساب، تعیین تفصیلی و مرکز هزینه، سند دستی را در پنجرهٔ جداگانه تکمیل کنید. تراز بدهکار و بستانکار پیش از ثبت کنترل می‌شود.</p><button type="button" onClick={() => setManualOpen(true)} className="btn btn-outline btn-primary mt-1">بازکردن فرم سند دستی</button><Link href="/admin/accounting" className="btn btn-ghost btn-sm">مشاهده اسناد صادرشده</Link></div></aside>
+    </div>
+    <Modal open={manualOpen} onClose={closeManual} title="ثبت سند حسابداری دستی" wide><ManualVoucherForm accounts={accounts} costCenters={costCenters} onSaved={closeManual} /></Modal>
+  </div>;
+}
+
 type Line = { accountId: number; costCenterId: number; debit: string; credit: string; description: string };
 const emptyLine = (): Line => ({ accountId: 0, costCenterId: 0, debit: "", credit: "", description: "" });
 
-export function ManualVoucherForm({ accounts, costCenters }: { accounts: AccRow[]; costCenters: CostCenterOption[] }) {
+export function ManualVoucherForm({ accounts, costCenters, onSaved }: { accounts: AccRow[]; costCenters: CostCenterOption[]; onSaved?: () => void }) {
   const router = useRouter();
   const [date, setDate] = useState(todayISO());
   const [desc, setDesc] = useState("");
@@ -277,7 +303,7 @@ export function ManualVoucherForm({ accounts, costCenters }: { accounts: AccRow[
     <div className="flex flex-wrap items-center gap-3"><span className={cn("badge gap-1", balanced ? "badge-success" : "badge-warning")}><Scale className="h-3.5 w-3.5" /> {balanced ? "سند تراز است" : `اختلاف: ${formatPrice(Math.abs(td - tc))}`}</span><div className="flex-1" /><button type="button" disabled={pending || !balanced || !desc} onClick={() => start(async () => {
       const result = await saveManualVoucher({ date, description: desc, lines: lines.map((line) => ({ accountId: line.accountId, debit: Number(line.debit) || 0, credit: Number(line.credit) || 0, description: line.description, costCenterId: line.costCenterId || null })) });
       setToast({ msg: result.message, tone: result.ok ? "success" : "error" });
-      if (result.ok) { setDesc(""); setLines([emptyLine(), emptyLine()]); router.refresh(); }
+      if (result.ok) { setDesc(""); setLines([emptyLine(), emptyLine()]); onSaved?.(); router.refresh(); }
     })} className="btn btn-primary">{pending && <span className="loading loading-spinner loading-sm" />} ثبت سند</button></div>
   </div><Toast message={toast?.msg ?? null} tone={toast?.tone} onDone={() => setToast(null)} /></div>;
 }

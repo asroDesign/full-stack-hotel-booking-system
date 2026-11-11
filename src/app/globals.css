@@ -962,3 +962,28 @@ dd {
     transform: translateY(42px);
   }
 }
+
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 12mm;
+  }
+  body {
+    background: #fff !important;
+  }
+  .journal-cover {
+    color: #111827 !important;
+    background: #fff !important;
+  }
+  .journal-cover table {
+    table-layout: fixed;
+  }
+  .journal-cover th,
+  .journal-cover td {
+    padding: 3px 4px !important;
+    font-size: 9pt !important;
+  }
+  .journal-cover tr {
+    break-inside: avoid;
+  }
+}
