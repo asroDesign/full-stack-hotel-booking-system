@@ -10,15 +10,17 @@ import { EmptyState } from "@/components/site/ui";
 import { BookingProcess, TrackSection } from "@/components/site/booking-sections";
 import { RulesTabs } from "@/components/site/rules-tabs";
 import { faNum } from "@/lib/utils";
+import { getActiveStayPackages } from "@/lib/stay-packages";
 
 export const metadata = { title: "رزرو آنلاین" };
 
-export default async function BookingPage({ searchParams }: { searchParams: Promise<{ room?: string; service?: string; checkIn?: string; checkOut?: string; guests?: string; promo?: string }> }) {
+export default async function BookingPage({ searchParams }: { searchParams: Promise<{ room?: string; service?: string; checkIn?: string; checkOut?: string; guests?: string; promo?: string; package?: string }> }) {
   const sp = await searchParams;
   const [s, { booking }] = await Promise.all([getSettings(), getContent()]);
-  const [allRooms, bookable] = await Promise.all([
+  const [allRooms, bookable, packages] = await Promise.all([
     db.select().from(rooms).where(eq(rooms.isActive, true)).orderBy(asc(rooms.sortOrder)),
     db.select().from(services).where(and(eq(services.isActive, true), eq(services.isBookable, true))).orderBy(asc(services.sortOrder)),
+    getActiveStayPackages(),
   ]);
 
   return (
@@ -49,9 +51,10 @@ export default async function BookingPage({ searchParams }: { searchParams: Prom
                 defaultItemId={Number(sp.room || sp.service) || undefined}
                 rooms={allRooms.map(toBookRoom)}
                 services={bookable.map(toBookService)}
+                packages={packages}
                 hotelRules={booking.hotelRules}
                 requireRulesAccept={booking.requireRulesAccept}
-                initial={{ checkIn: sp.checkIn, checkOut: sp.checkOut, guests: Number(sp.guests) || undefined, promo: (sp.promo ?? "").toUpperCase().replace(/[^A-Z0-9_-]/g, "").slice(0, 30) || undefined }}
+                initial={{ checkIn: sp.checkIn, checkOut: sp.checkOut, guests: Number(sp.guests) || undefined, promo: (sp.promo ?? "").toUpperCase().replace(/[^A-Z0-9_-]/g, "").slice(0, 30) || undefined, packageSlug: sp.package?.slice(0, 80) }}
               />
             )}
           </div>

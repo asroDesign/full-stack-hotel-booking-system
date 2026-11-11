@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { after } from "next/server";
 import { db } from "@/db";
-import { messages, reservations, rooms, services, testimonials, promotions } from "@/db/schema";
+import { messages, reservations, rooms, services, testimonials, promotions, stayPackages } from "@/db/schema";
 import { getSettings } from "@/lib/data";
 import { getContent } from "@/lib/content";
 import { bookedSlots, roomConflicts } from "@/lib/availability";
@@ -51,12 +51,16 @@ export async function createReservation(_prev: FormState, fd: FormData): Promise
   const timeSlot = s(fd, "timeSlot", 30);
   const notes = cleanText(fd.get("notes"), 1000);
   const optionIds = s(fd, "options", 500).split(",").filter(Boolean).slice(0, 20);
+  const rawStayPackageId = s(fd, "stayPackageId");
+  const requestedStayPackageId = rawStayPackageId ? Number(rawStayPackageId) : 0;
 
   if (!Number.isInteger(itemId) || itemId <= 0) return { error: "لطفاً اتاق یا خدمت مورد نظر را انتخاب کنید." };
   if (guestName.length < 3) return { error: "نام و نام خانوادگی را کامل وارد کنید." };
   if (!/^09\d{9}$/.test(phone)) return { error: "شماره موبایل معتبر نیست (مثال: ۰۹۱۲۱۲۳۴۵۶۷)." };
   if (nationalId && !/^\d{10}$/.test(nationalId)) return { error: "کد ملی باید ۱۰ رقم باشد." };
   if (email && !EMAIL.test(email)) return { error: "ایمیل وارد شده معتبر نیست." };
+  if (!Number.isSafeInteger(requestedStayPackageId) || requestedStayPackageId < 0 || requestedStayPackageId > 2_147_483_647)
+    return { error: "بستهٔ اقامتی انتخاب‌شده معتبر نیست." };
   if (!ISO.test(checkIn)) return { error: "تاریخ را انتخاب کنید." };
   if (checkIn < todayISO()) return { error: "تاریخ انتخاب‌شده گذشته است." };
 
@@ -75,6 +79,9 @@ export async function createReservation(_prev: FormState, fd: FormData): Promise
   let serviceId: number | null = null;
   let options: typeof reservations.$inferInsert.options = [];
   let optionsTotal = 0;
+  let stayPackageId: number | null = null;
+  let stayPackageName = "";
+  let stayPackagePrice = 0;
   let nightly: typeof reservations.$inferInsert.nightly = [];
 
   if (kind === "room") {
@@ -90,13 +97,21 @@ export async function createReservation(_prev: FormState, fd: FormData): Promise
     if (conflicts.length) return { error: "متأسفانه اتاق در این بازه رزرو شده است. تاریخ دیگری انتخاب کنید." };
     const q = await quoteRoom(room, checkIn, checkOut, guests, optionIds);
     itemName = room.name;
-    total = q.total;
+    if (requestedStayPackageId > 0) {
+      const [selectedPackage] = await db.select().from(stayPackages).where(and(eq(stayPackages.id, requestedStayPackageId), eq(stayPackages.isActive, true)));
+      if (!selectedPackage) return { error: "بستهٔ اقامتی انتخاب‌شده دیگر در دسترس نیست. صفحه را تازه‌سازی کنید." };
+      stayPackageId = selectedPackage.id;
+      stayPackageName = selectedPackage.title;
+      stayPackagePrice = selectedPackage.pricingMode === "fixed" ? selectedPackage.price : 0;
+    }
+    total = q.total + stayPackagePrice;
     extraGuestFee = q.extraGuestFee;
     options = q.options;
     optionsTotal = q.optionsTotal;
     nightly = q.nights.map((n) => ({ date: n.date, price: n.price, kind: n.kind }));
     roomId = room.id;
   } else {
+    if (requestedStayPackageId > 0) return { error: "بستهٔ اقامتی فقط به رزرو اتاق اضافه می‌شود." };
     const [svc] = await db.select().from(services).where(eq(services.id, itemId));
     if (!svc || !svc.isActive || !svc.isBookable) return { error: "این خدمت قابل رزرو نیست." };
     if (svc.timeSlots.length && !svc.timeSlots.includes(timeSlot)) return { error: "لطفاً سانس را انتخاب کنید." };
@@ -131,6 +146,9 @@ export async function createReservation(_prev: FormState, fd: FormData): Promise
       kind,
       roomId,
       serviceId,
+      stayPackageId,
+      stayPackageName,
+      stayPackagePrice,
       itemName,
       guestName,
       phone,

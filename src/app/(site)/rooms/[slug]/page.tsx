@@ -12,6 +12,7 @@ import { faNum, formatPrice } from "@/lib/utils";
 import { Gallery, VideoPlayer } from "@/components/media";
 import { BookingForm } from "@/components/booking-form";
 import { RoomCard } from "@/components/site/ui";
+import { getActiveStayPackages } from "@/lib/stay-packages";
 
 export default async function RoomDetail({ params, searchParams }: { params: Promise<{ slug: string }>; searchParams: Promise<{ checkIn?: string; checkOut?: string; guests?: string }> }) {
   const { slug } = await params;
@@ -19,10 +20,11 @@ export default async function RoomDetail({ params, searchParams }: { params: Pro
   const [room] = await db.select().from(rooms).where(eq(rooms.slug, decodeURIComponent(slug)));
   if (!room || !room.isActive) notFound();
   const [s, { booking }] = await Promise.all([getSettings(), getContent()]);
-  const [allRooms, bookable, similar] = await Promise.all([
+  const [allRooms, bookable, similar, packages] = await Promise.all([
     db.select().from(rooms).where(eq(rooms.isActive, true)).orderBy(asc(rooms.sortOrder)),
     db.select().from(services).where(and(eq(services.isActive, true), eq(services.isBookable, true))),
     db.select().from(rooms).where(and(eq(rooms.type, room.type), ne(rooms.id, room.id), eq(rooms.isActive, true))).limit(3),
+    getActiveStayPackages(),
   ]);
 
   const specs = [
@@ -137,6 +139,7 @@ export default async function RoomDetail({ params, searchParams }: { params: Pro
                 defaultItemId={room.id}
                 rooms={allRooms.map(toBookRoom)}
                 services={bookable.map(toBookService)}
+                packages={packages}
                 hotelRules={booking.hotelRules}
                 requireRulesAccept={booking.requireRulesAccept}
                 initial={{ checkIn: sp.checkIn, checkOut: sp.checkOut, guests: Number(sp.guests) || undefined }}

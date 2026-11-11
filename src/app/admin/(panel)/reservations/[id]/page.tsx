@@ -27,6 +27,7 @@ export default async function ReservationDetailPage({ params }: { params: Promis
     ["پذیرش / تخلیه", r.checkedInAt ? `ورود ${formatDateTime(r.checkedInAt)}${r.checkedOutAt ? ` · خروج ${formatDateTime(r.checkedOutAt)}` : ""}` : "هنوز پذیرش نشده"],
     ["نوع", r.kind === "room" ? "اقامت در اتاق" : "خدمات / سانس"],
     ["مورد رزرو", r.itemName],
+    ...(r.stayPackageName ? ([["بستهٔ اقامتی", `${r.stayPackageName}${r.stayPackagePrice ? ` · ${formatPrice(r.stayPackagePrice)} تومان` : " · هماهنگی با پذیرش"}`]] as [string, React.ReactNode][]) : []),
     [r.kind === "room" ? "ورود" : "تاریخ", formatJalali(r.checkIn, true)],
     r.kind === "room" ? ["خروج", `${formatJalali(r.checkOut, true)} · ${faNum(r.nights)} شب`] : ["سانس", <span key="s" dir="ltr">{faNum(r.timeSlot)}</span>],
     ["تعداد نفرات", `${faNum(r.guests)} نفر`],

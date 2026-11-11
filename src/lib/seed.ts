@@ -18,6 +18,7 @@ import { ATALAR_VENUES, insertVenues } from "./seed-dining";
 import { seedCityPreset } from "./seed-city";
 import { seedEspinasPreset } from "./seed-espinas";
 import { ensureExtrasDemo } from "./seed-extras";
+import { ensureStayPackageExamples } from "./seed-stay-packages";
 import { diningVenues, journalEntries, settings } from "@/db/schema";
 import { addDaysISO, todayISO, genReservationCode, genTrackingCode } from "./utils";
 
@@ -52,6 +53,7 @@ export function ensureSeeded(): Promise<void> {
         await ensureCalendar();
         await ensureDiningDemo();
         await ensureExtrasDemo();
+        await ensureStayPackageExamples();
       })
       .catch((e) => {
       seeding = null;

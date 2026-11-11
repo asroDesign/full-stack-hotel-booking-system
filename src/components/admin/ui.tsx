@@ -44,6 +44,7 @@ import {
   Gift,
   Crown,
   Handshake,
+  PackageCheck,
 } from "lucide-react";
 import { logout } from "@/app/actions/admin";
 import { IMAGE_ACCEPT, isImageFile, uploadFile } from "./media-inputs";
@@ -96,6 +97,7 @@ const navSections: { title: string; items: NavItem[] }[] = [
       { href: "/admin/appearance", label: "هویت و ظاهر سایت", Icon: Paintbrush },
       { href: "/admin/home", label: "صفحه اصلی", Icon: Home },
       { href: "/admin/booking-page", label: "صفحه رزرو و قوانین", Icon: FileText },
+      { href: "/admin/packages", label: "بسته‌های اقامتی", Icon: PackageCheck },
       { href: "/admin/dining", label: "رستوران و کافه", Icon: UtensilsCrossed },
       { href: "/admin/services", label: "خدمات و سانس‌ها", Icon: Waves },
       { href: "/admin/gallery", label: "گالری تصاویر", Icon: Images },

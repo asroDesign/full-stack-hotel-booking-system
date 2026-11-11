@@ -45,7 +45,7 @@ export function HomeEditor({ initial, services, hasDining }: { initial: HomeCont
         <ol className="space-y-2">
           {c.sectionOrder.map((k, i) => {
             const meta = HOME_SECTIONS.find((x) => x.key === k);
-            const showKey = ({ features: "showFeatures", rooms: "showRooms", spotlight: "showPool", dining: "showDining", amenities: "showAmenities", services: "showServices", attractions: "showAttractions", reviews: "showReviews", track: "showTrack", map: "showMap", offers: "showOffers", gallery: "showGallery", faq: "showFaq" } as const)[k as "rooms"];
+            const showKey = ({ features: "showFeatures", rooms: "showRooms", packages: "showPackages", spotlight: "showPool", dining: "showDining", amenities: "showAmenities", services: "showServices", attractions: "showAttractions", reviews: "showReviews", track: "showTrack", map: "showMap", offers: "showOffers", gallery: "showGallery", faq: "showFaq" } as const)[k as "rooms"];
             const visible = showKey ? (c[showKey] as boolean) : true;
             const mv = (d: number) => {
               const j = i + d;

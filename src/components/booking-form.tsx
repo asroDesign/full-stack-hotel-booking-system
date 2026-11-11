@@ -35,7 +35,18 @@ type Quote = {
   extraGuestFee: number;
   options: { id: string; title: string; amount: number }[];
   optionsTotal: number;
+  stayPackageName?: string;
+  stayPackagePrice?: number;
   total: number;
+};
+export type BookStayPackage = {
+  id: number;
+  slug: string;
+  title: string;
+  description: string;
+  features: string[];
+  pricingMode: "fixed" | "contact";
+  price: number;
 };
 export type BookService = {
   id: number;
@@ -53,6 +64,7 @@ export type BookService = {
 export function BookingForm({
   rooms,
   services,
+  packages = [],
   defaultKind = "room",
   defaultItemId,
   depositPercent,
@@ -63,13 +75,14 @@ export function BookingForm({
 }: {
   rooms: BookRoom[];
   services: BookService[];
+  packages?: BookStayPackage[];
   defaultKind?: "room" | "service";
   defaultItemId?: number;
   depositPercent: number;
   compact?: boolean;
   hotelRules?: string[];
   requireRulesAccept?: boolean;
-  initial?: { checkIn?: string; checkOut?: string; guests?: number; promo?: string };
+  initial?: { checkIn?: string; checkOut?: string; guests?: number; promo?: string; packageSlug?: string };
 }) {
   const [state, action, pending] = useActionState(createReservation, null);
   const [kind, setKind] = useState<"room" | "service">(defaultKind);
@@ -79,6 +92,7 @@ export function BookingForm({
   const [serviceId, setServiceId] = useState<number>(
     defaultKind === "service" && defaultItemId ? defaultItemId : services[0]?.id ?? 0,
   );
+  const [stayPackageId, setStayPackageId] = useState<number>(() => packages.find((p) => p.slug === initial?.packageSlug)?.id ?? 0);
   const validIn = initial?.checkIn && /^\d{4}-\d{2}-\d{2}$/.test(initial.checkIn) && initial.checkIn >= todayISO() ? initial.checkIn : "";
   const validOut =
     validIn && defaultKind === "room" && initial?.checkOut && /^\d{4}-\d{2}-\d{2}$/.test(initial.checkOut) && initial.checkOut > validIn ? initial.checkOut : "";
@@ -97,6 +111,7 @@ export function BookingForm({
 
   const room = rooms.find((r) => r.id === roomId);
   const service = services.find((s) => s.id === serviceId);
+  const stayPackage = packages.find((p) => p.id === stayPackageId);
   const today = todayISO();
 
   useEffect(() => {
@@ -141,7 +156,7 @@ export function BookingForm({
     let alive = true;
     setQuoting(true);
     const t = setTimeout(() => {
-      fetch(`/api/quote?roomId=${roomId}&checkIn=${checkIn}&checkOut=${checkOut}&guests=${guests}&options=${optIds.join(",")}`)
+      fetch(`/api/quote?roomId=${roomId}&checkIn=${checkIn}&checkOut=${checkOut}&guests=${guests}&options=${optIds.join(",")}&stayPackageId=${stayPackageId || ""}`)
         .then((r) => (r.ok ? r.json() : null))
         .then((d) => alive && setQuote(d))
         .finally(() => alive && setQuoting(false));
@@ -150,7 +165,7 @@ export function BookingForm({
       alive = false;
       clearTimeout(t);
     };
-  }, [kind, roomId, checkIn, checkOut, guests, optIds]);
+  }, [kind, roomId, checkIn, checkOut, guests, optIds, stayPackageId]);
 
   const dayInfo = (iso: string) => {
     const x = prices[iso];
@@ -168,7 +183,8 @@ export function BookingForm({
   const extraCount = kind === "service" && service ? Math.max(0, guests - service.includedGuests) : 0;
   const extraFee = kind === "service" && service ? extraCount * service.extraGuestPrice : 0;
   const basePrice = kind === "room" ? quote?.roomTotal ?? (room?.price ?? 0) * nights : slot ? slotPrice(slot) : service?.price ?? 0;
-  const subtotal = kind === "room" ? quote?.total ?? basePrice : basePrice + extraFee;
+  const packageFallbackPrice = stayPackage?.pricingMode === "fixed" ? stayPackage.price : 0;
+  const subtotal = kind === "room" ? quote?.total ?? basePrice + packageFallbackPrice : basePrice + extraFee;
 
   /* ---------- promo code ---------- */
   const [promoInput, setPromoInput] = useState(initial?.promo ?? "");
@@ -187,6 +203,7 @@ export function BookingForm({
       checkOut,
       guests: String(guests),
       options: optIds.join(","),
+      stayPackageId: String(kind === "room" ? stayPackageId : 0),
       timeSlot: slot,
     });
     try {
@@ -204,7 +221,7 @@ export function BookingForm({
       setPromoBusy(false);
     }
   };
-  const promoDeps = JSON.stringify([kind, roomId, serviceId, checkIn, checkOut, guests, optIds, slot]);
+  const promoDeps = JSON.stringify([kind, roomId, serviceId, checkIn, checkOut, guests, optIds, slot, stayPackageId]);
   const promoReady = kind === "room" ? !!(checkIn && checkOut) : !!checkIn && (!service?.timeSlots.length || !!slot);
   useEffect(() => {
     if (!promoReady) return;
@@ -236,6 +253,7 @@ export function BookingForm({
     <form action={action} className="space-y-5">
       <input type="hidden" name="kind" value={kind} />
       <input type="hidden" name="itemId" value={kind === "room" ? roomId : serviceId} />
+      <input type="hidden" name="stayPackageId" value={kind === "room" ? stayPackageId : 0} />
       <input type="hidden" name="timeSlot" value={slot} />
       <input type="hidden" name="guests" value={guests} />
       <input type="hidden" name="promoCode" value={promo?.code ?? ""} />
@@ -426,6 +444,23 @@ export function BookingForm({
             </div>
           </div>
         )}
+        {kind === "room" && packages.length > 0 && (
+          <div className={cn(!compact && "md:col-span-2")}>
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <label className="field-label mb-0">بستهٔ اقامتی (اختیاری)</label>
+              {stayPackageId !== 0 && <button type="button" onClick={() => setStayPackageId(0)} className="btn btn-ghost btn-xs">حذف انتخاب</button>}
+            </div>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {packages.map((p) => (
+                <button type="button" key={p.id} aria-pressed={stayPackageId === p.id} onClick={() => setStayPackageId(stayPackageId === p.id ? 0 : p.id)} className={cn("rounded-box border p-3 text-right transition", stayPackageId === p.id ? "border-primary bg-primary/5 ring-1 ring-primary/30" : "border-base-300 hover:border-primary/50")}>
+                  <span className="flex items-center justify-between gap-2 font-bold"><span>{p.title}</span><span className="text-xs font-medium text-primary">{p.pricingMode === "fixed" ? `${formatPrice(p.price)} تومان` : "با هماهنگی"}</span></span>
+                  {p.description && <span className="mt-1 block text-xs leading-6 text-base-content/60">{p.description}</span>}
+                  {p.features.length > 0 && <span className="mt-2 block text-[11px] leading-5 text-base-content/70">{p.features.slice(0, 3).join(" · ")}</span>}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         <div>
           <label className="field-label">نام و نام خانوادگی *</label>
           <input name="guestName" className="input w-full" placeholder="مثلاً علی رضایی" required />
@@ -508,6 +543,12 @@ export function BookingForm({
                 <span>{formatPrice(o.amount)} تومان</span>
               </div>
             ))}
+          {kind === "room" && stayPackage && (
+            <div className="flex justify-between text-slate-600">
+              <span>{stayPackage.title}</span>
+              <span>{stayPackage.pricingMode === "fixed" ? `${formatPrice(quote?.stayPackagePrice ?? packageFallbackPrice)} تومان` : "هماهنگی با پذیرش"}</span>
+            </div>
+          )}
           {extraFee > 0 && (
             <div className="flex justify-between text-slate-600">
               <span>{faNum(extraCount)} نفر اضافه × {formatPrice(service?.extraGuestPrice ?? 0)}</span>

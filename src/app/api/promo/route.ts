@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db } from "@/db";
-import { rooms, services } from "@/db/schema";
+import { rooms, services, stayPackages } from "@/db/schema";
 import { quoteRoom } from "@/lib/pricing";
 import { evaluatePromo } from "@/lib/promotions";
 import { clientIp } from "@/lib/security";
@@ -23,7 +23,11 @@ export async function GET(req: Request) {
   const guests = Math.min(30, Math.max(1, Number(sp.get("guests")) || 1));
   const options = (sp.get("options") ?? "").split(",").filter(Boolean).slice(0, 20);
   const slot = sp.get("timeSlot") ?? "";
+  const rawPackageId = sp.get("stayPackageId") ?? "";
+  const stayPackageId = rawPackageId ? Number(rawPackageId) : 0;
   if (!itemId || !ISO.test(checkIn)) return NextResponse.json({ ok: false, error: "ابتدا مورد رزرو و تاریخ را انتخاب کنید." });
+  if (!Number.isSafeInteger(stayPackageId) || stayPackageId < 0 || stayPackageId > 2_147_483_647) return NextResponse.json({ ok: false, error: "بستهٔ اقامتی معتبر نیست." });
+  if (kind === "service" && stayPackageId > 0) return NextResponse.json({ ok: false, error: "بستهٔ اقامتی فقط برای رزرو اتاق است." });
 
   let subtotal = 0;
   let nights = 1;
@@ -35,6 +39,11 @@ export async function GET(req: Request) {
     const [room] = await db.select().from(rooms).where(eq(rooms.id, itemId));
     if (!room || !room.isActive) return NextResponse.json({ ok: false, error: "اتاق یافت نشد." });
     subtotal = (await quoteRoom(room, checkIn, checkOut, guests, options)).total;
+    if (stayPackageId > 0) {
+      const [stayPackage] = await db.select().from(stayPackages).where(and(eq(stayPackages.id, stayPackageId), eq(stayPackages.isActive, true)));
+      if (!stayPackage) return NextResponse.json({ ok: false, error: "بستهٔ اقامتی انتخاب‌شده در دسترس نیست." });
+      if (stayPackage.pricingMode === "fixed") subtotal += stayPackage.price;
+    }
     roomId = room.id;
   } else {
     const [svc] = await db.select().from(services).where(eq(services.id, itemId));

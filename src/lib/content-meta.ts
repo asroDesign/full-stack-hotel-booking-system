@@ -3,6 +3,7 @@
 export const HOME_SECTIONS: { key: string; title: string }[] = [
   { key: "features", title: "نوار ویژگی‌ها" },
   { key: "rooms", title: "اتاق‌ها" },
+  { key: "packages", title: "بسته‌های اقامتی" },
   { key: "offers", title: "پیشنهادهای ویژه و کد تخفیف" },
   { key: "spotlight", title: "سکشن ویژه (استخر، اسپا، …)" },
   { key: "dining", title: "رستوران و کافه" },

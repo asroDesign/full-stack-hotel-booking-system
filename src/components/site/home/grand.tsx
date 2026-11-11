@@ -11,6 +11,7 @@ import { DynIcon } from "@/components/dyn-icon";
 import { MapView } from "@/components/map-view";
 import { MediaPlaylist } from "@/components/media-playlist";
 import { visibleSections, type HomeData } from "./data";
+import { StayPackagesSection } from "@/components/site/stay-packages-section";
 import { FaqSection, GallerySection, OffersSection } from "@/components/site/extras-sections";
 
 function Eyebrow({ children, light, center }: { children: React.ReactNode; light?: boolean; center?: boolean }) {
@@ -44,6 +45,7 @@ export function GrandHome({ d }: { d: HomeData }) {
   const avgRating = d.reviews.length ? d.reviews.reduce((a, r) => a + r.rating, 0) / d.reviews.length : 0;
 
   const sections: Record<string, () => React.ReactNode> = {
+    packages: () => <StayPackagesSection key="packages" packages={d.packages} />,
     offers: () => <OffersSection key="offers" offers={d.offers} eyebrow={h.offersEyebrow} title={h.offersTitle} text={h.offersText} />,
     gallery: () => <GallerySection key="gallery" items={d.gallery} eyebrow={h.galleryEyebrow} title={h.galleryTitle} />,
     faq: () => <FaqSection key="faq" faqs={d.faqList} eyebrow={h.faqEyebrow} title={h.faqTitle} />,

@@ -103,6 +103,20 @@ export const services = pgTable("services", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+export const stayPackages = pgTable("stay_packages", {
+  id: serial("id").primaryKey(),
+  slug: text("slug").notNull().unique(),
+  title: text("title").notNull(),
+  description: text("description").notNull().default(""),
+  image: text("image").notNull().default(""),
+  features: jsonb("features").$type<string[]>().notNull().default([]),
+  pricingMode: text("pricing_mode").$type<"fixed" | "contact">().notNull().default("contact"),
+  price: integer("price").notNull().default(0),
+  isActive: boolean("is_active").notNull().default(true),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 export const amenities = pgTable("amenities", {
   id: serial("id").primaryKey(),
   title: text("title").notNull(),
@@ -143,6 +157,9 @@ export const reservations = pgTable("reservations", {
   kind: text("kind").$type<"room" | "service">().notNull(),
   roomId: integer("room_id").references(() => rooms.id, { onDelete: "set null" }),
   serviceId: integer("service_id").references(() => services.id, { onDelete: "set null" }),
+  stayPackageId: integer("stay_package_id").references(() => stayPackages.id, { onDelete: "set null" }),
+  stayPackageName: text("stay_package_name").notNull().default(""),
+  stayPackagePrice: integer("stay_package_price").notNull().default(0),
   itemName: text("item_name").notNull().default(""),
   guestName: text("guest_name").notNull(),
   phone: text("phone").notNull(),
@@ -701,3 +718,4 @@ export type GiftCard = typeof giftCards.$inferSelect;
 export type TableBooking = typeof tableBookings.$inferSelect;
 export type GuestRequest = typeof guestRequests.$inferSelect;
 export type Partner = typeof partners.$inferSelect;
+export type StayPackage = typeof stayPackages.$inferSelect;

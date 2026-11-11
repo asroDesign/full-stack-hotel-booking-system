@@ -14,6 +14,7 @@ import { MapView } from "@/components/map-view";
 import { MediaPlaylist } from "@/components/media-playlist";
 import { cn } from "@/lib/utils";
 import { visibleSections, type HomeData } from "./data";
+import { StayPackagesSection } from "@/components/site/stay-packages-section";
 
 function Chapter({ n, eyebrow, title, desc, light, center, action }: { n?: number; eyebrow?: string; title: string; desc?: string; light?: boolean; center?: boolean; action?: React.ReactNode }) {
   return (
@@ -43,6 +44,7 @@ export function OpusHome({ d }: { d: HomeData }) {
   const next = () => ++chapter;
 
   const sections: Record<string, () => React.ReactNode> = {
+    packages: () => <StayPackagesSection key="packages" packages={d.packages} />,
     features: () => (
       <section key="features" className="overflow-hidden border-y border-brand-900/10 bg-brand-950 py-5 text-white">
         <div className="flex w-max animate-marquee gap-10">

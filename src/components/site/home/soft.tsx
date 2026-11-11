@@ -11,6 +11,7 @@ import { DynIcon } from "@/components/dyn-icon";
 import { MapView } from "@/components/map-view";
 import { MediaPlaylist } from "@/components/media-playlist";
 import { visibleSections, type HomeData } from "./data";
+import { StayPackagesSection } from "@/components/site/stay-packages-section";
 import { FaqSection, GallerySection, OffersSection } from "@/components/site/extras-sections";
 
 function SoftTitle({ eyebrow, title, desc, center }: { eyebrow?: string; title: string; desc?: string; center?: boolean }) {
@@ -31,6 +32,7 @@ export function SoftHome({ d }: { d: HomeData }) {
   const maxGuests = Math.max(2, ...d.allRooms.map((r) => r.capacity + r.extraBeds));
 
   const sections: Record<string, () => React.ReactNode> = {
+    packages: () => <StayPackagesSection key="packages" packages={d.packages} />,
     offers: () => <OffersSection key="offers" offers={d.offers} eyebrow={h.offersEyebrow} title={h.offersTitle} text={h.offersText} />,
     gallery: () => <GallerySection key="gallery" items={d.gallery} eyebrow={h.galleryEyebrow} title={h.galleryTitle} />,
     faq: () => <FaqSection key="faq" faqs={d.faqList} eyebrow={h.faqEyebrow} title={h.faqTitle} />,

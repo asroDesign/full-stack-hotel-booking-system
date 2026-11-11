@@ -112,6 +112,7 @@ export default async function TrackDetail({
               <h3 className="font-extrabold text-slate-900">جزئیات رزرو</h3>
               {[
                 ["مورد رزرو", r.itemName],
+                ...(r.stayPackageName ? [["بستهٔ اقامتی", r.stayPackageName] as const] : []),
                 ["نام مهمان", r.guestName],
                 ["موبایل", faNum(r.phone)],
                 ["تعداد نفرات", `${faNum(r.guests)} نفر`],
@@ -127,6 +128,7 @@ export default async function TrackDetail({
               <div className="rounded-2xl bg-slate-50 p-4">
                 {r.discount > 0 && <div className="mb-2 flex justify-between text-success"><span>تخفیف ({r.promoCode})</span><span>− {formatPrice(r.discount)} تومان</span></div>}
                 {r.extraGuestFee > 0 && <div className="mb-2 flex justify-between text-slate-500"><span>شامل هزینه نفر اضافه</span><span>{formatPrice(r.extraGuestFee)} تومان</span></div>}
+                {r.stayPackageName && <div className="mb-2 flex justify-between text-slate-500"><span>{r.stayPackageName}</span><span>{r.stayPackagePrice > 0 ? `${formatPrice(r.stayPackagePrice)} تومان` : "هماهنگی با پذیرش"}</span></div>}
                 <div className="flex justify-between"><span className="text-slate-500">مبلغ کل</span><span className="font-bold">{formatPrice(r.totalPrice)} تومان</span></div>
                 <div className="mt-2 flex justify-between text-brand-800"><span>پیش‌پرداخت</span><span className="font-black">{formatPrice(r.depositAmount)} تومان</span></div>
                 <div className="mt-2 flex justify-between text-slate-500"><span>مانده (هنگام ورود)</span><span>{formatPrice(r.totalPrice - r.depositAmount)} تومان</span></div>

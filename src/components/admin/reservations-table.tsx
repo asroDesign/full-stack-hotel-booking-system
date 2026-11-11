@@ -56,6 +56,7 @@ export function ReservationsTable({ initial }: { initial: Reservation[] }) {
               </div>
               <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-base-content/70">
                 <span className="font-medium text-base-content">{r.itemName}</span>
+                {r.stayPackageName && <span className="badge badge-primary badge-soft badge-sm">{r.stayPackageName}</span>}
                 <span>{formatJalali(r.checkIn)}{r.kind === "room" ? ` · ${faNum(r.nights)} شب` : ` · ${faNum(r.timeSlot)}`}</span>
                 <span>{faNum(r.guests)} نفر</span>
               </div>
@@ -111,6 +112,7 @@ export function ReservationsTable({ initial }: { initial: Reservation[] }) {
                       </span>
                       <div>
                         <div className="font-medium text-slate-700">{r.itemName}</div>
+                        {r.stayPackageName && <div className="text-xs font-medium text-primary">بسته: {r.stayPackageName}</div>}
                         <div className="text-xs text-slate-400">{faNum(r.guests)} نفر</div>
                       </div>
                     </div>

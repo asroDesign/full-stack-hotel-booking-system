@@ -24,6 +24,7 @@ export type HomeContent = {
   features: IconText[];
 
   showRooms: boolean;
+  showPackages: boolean;
   roomsEyebrow: string;
   roomsTitle: string;
   roomsText: string;
@@ -133,6 +134,7 @@ export const defaultHome: HomeContent = {
   ],
 
   showRooms: true,
+  showPackages: true,
   roomsEyebrow: "اقامتگاه‌ها",
   roomsTitle: "اتاق‌ها و سوئیت‌های آتالار",
   roomsText: "هر اتاق با دقت و عشق طراحی شده؛ از اتاق دبل دنج تا سوئیت رویال با تراس اختصاصی.",
@@ -159,7 +161,7 @@ export const defaultHome: HomeContent = {
   diningText: "از صبحانه محلی تا شام سنتی و قهوه تخصصی؛ با مواد اولیه تازه و منوی متنوع.",
   diningCta: "مشاهده منو",
 
-  sectionOrder: ["features", "rooms", "offers", "spotlight", "dining", "amenities", "services", "gallery", "attractions", "reviews", "faq", "track", "map"],
+  sectionOrder: ["features", "rooms", "packages", "offers", "spotlight", "dining", "amenities", "services", "gallery", "attractions", "reviews", "faq", "track", "map"],
 
   showOffers: true,
   offersEyebrow: "پیشنهادهای ویژه",
