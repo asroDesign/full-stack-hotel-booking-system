@@ -78,6 +78,13 @@
       "when": 1794389817417,
       "tag": "0010_hotel_staff_admin_audit",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1794411431169,
+      "tag": "0011_accounting_cost_centers",
+      "breakpoints": true
     }
   ]
 }

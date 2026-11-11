@@ -27,15 +27,16 @@ export default async function LedgerPage({ searchParams }: { searchParams: Promi
             <p className="text-sm text-base-content/50">از {formatJalali(from)} تا {formatJalali(to)}</p>
             <div className="overflow-x-auto">
               <table className="table table-sm min-w-[860px]">
-                <thead className="bg-base-200"><tr><th>تاریخ</th><th>سند</th><th>حساب</th><th>شرح</th><th className="text-left">بدهکار</th><th className="text-left">بستانکار</th><th className="text-left">مانده</th></tr></thead>
+                <thead className="bg-base-200"><tr><th>تاریخ</th><th>سند</th><th>حساب</th><th>شرح</th><th>مرکز هزینه</th><th className="text-left">بدهکار</th><th className="text-left">بستانکار</th><th className="text-left">مانده</th></tr></thead>
                 <tbody>
-                  <tr className="bg-base-200/40 font-medium"><td colSpan={6}>مانده ابتدای دوره</td><td className="text-left">{bal(data.opening)}</td></tr>
+                  <tr className="bg-base-200/40 font-medium"><td colSpan={7}>مانده ابتدای دوره</td><td className="text-left">{bal(data.opening)}</td></tr>
                   {data.rows.map((r) => (
                     <tr key={r.id}>
                       <td className="whitespace-nowrap">{formatJalali(r.date)}</td>
                       <td>#{faNum(r.entryId)}</td>
                       <td className="text-xs">{r.code} {r.name}</td>
                       <td className="max-w-80 truncate" title={r.entryDesc}>{r.description || r.entryDesc}</td>
+                      <td>{r.costCenterName || "—"}</td>
                       <td className="text-left">{r.debit ? formatPrice(r.debit) : ""}</td>
                       <td className="text-left">{r.credit ? formatPrice(r.credit) : ""}</td>
                       <td className="text-left font-medium">{bal(r.balance)}</td>
@@ -44,7 +45,7 @@ export default async function LedgerPage({ searchParams }: { searchParams: Promi
                 </tbody>
                 <tfoot>
                   <tr className="text-sm font-black">
-                    <td colSpan={4}>جمع گردش / مانده پایان دوره</td>
+                    <td colSpan={5}>جمع گردش / مانده پایان دوره</td>
                     <td className="text-left">{formatPrice(data.rows.reduce((s, r) => s + r.debit, 0))}</td>
                     <td className="text-left">{formatPrice(data.rows.reduce((s, r) => s + r.credit, 0))}</td>
                     <td className="text-left">{bal(data.closing)}</td>

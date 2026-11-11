@@ -3,7 +3,7 @@
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db } from "@/db";
-import { accounts, journalEntries, journalLines, type AccountType } from "@/db/schema";
+import { accounts, costCenters, journalEntries, journalLines, type AccountType } from "@/db/schema";
 import { requireAdmin } from "@/lib/auth";
 import { cleanText } from "@/lib/security";
 import { createVoucher, ensureAccounts } from "@/lib/accounting";
@@ -48,6 +48,32 @@ export async function saveAccount(input: { id?: number; parentId?: number | null
   return { ok: true, message: "حساب ذخیره شد." };
 }
 
+export async function saveCostCenter(input: { id?: number; code: string; name: string; isActive?: boolean }): Promise<Res> {
+  await requireAdmin();
+  const code = toEnDigits(String(input.code ?? "")).replace(/[^\dA-Za-z_-]/g, "").slice(0, 24);
+  const name = cleanText(input.name, 100);
+  if (!code || !name) return { ok: false, message: "کد و نام مرکز هزینه الزامی است." };
+  try {
+    if (input.id) await db.update(costCenters).set({ code, name, isActive: input.isActive ?? true }).where(eq(costCenters.id, input.id));
+    else await db.insert(costCenters).values({ code, name });
+  } catch {
+    return { ok: false, message: "کد مرکز هزینه تکراری است." };
+  }
+  revalidatePath("/admin/accounting", "layout");
+  return { ok: true, message: "مرکز هزینه ذخیره شد." };
+}
+
+export async function setCostCenterActive(id: number, active: boolean): Promise<Res> {
+  await requireAdmin();
+  const centerId = Math.trunc(Number(id));
+  if (!Number.isSafeInteger(centerId) || centerId <= 0) return { ok: false, message: "مرکز هزینه معتبر نیست." };
+  const [center] = await db.select().from(costCenters).where(eq(costCenters.id, centerId));
+  if (!center) return { ok: false, message: "مرکز هزینه یافت نشد." };
+  await db.update(costCenters).set({ isActive: Boolean(active) }).where(eq(costCenters.id, centerId));
+  revalidatePath("/admin/accounting", "layout");
+  return { ok: true, message: active ? "مرکز هزینه فعال شد." : "مرکز هزینه غیرفعال شد." };
+}
+
 export async function deleteAccount(id: number): Promise<Res> {
   await requireAdmin();
   const [acc] = await db.select().from(accounts).where(eq(accounts.id, id));
@@ -65,7 +91,7 @@ export async function deleteAccount(id: number): Promise<Res> {
 export async function saveManualVoucher(input: {
   date: string;
   description: string;
-  lines: { accountId: number; debit: number; credit: number; description: string }[];
+  lines: { accountId: number; debit: number; credit: number; description: string; costCenterId?: number | null }[];
 }): Promise<Res> {
   const admin = await requireAdmin();
   if (!ISO.test(input.date)) return { ok: false, message: "تاریخ سند را انتخاب کنید." };
@@ -81,6 +107,7 @@ export async function saveManualVoucher(input: {
       debit: Number(l.debit) || 0,
       credit: Number(l.credit) || 0,
       description: cleanText(l.description, 300),
+      costCenterId: l.costCenterId ? Number(l.costCenterId) : null,
     })),
   });
   if (!r.ok) return { ok: false, message: r.error };
@@ -96,6 +123,7 @@ export async function saveQuickEntry(input: {
   moneyAccountId: number;
   amount: number;
   description: string;
+  costCenterId?: number;
 }): Promise<Res> {
   const admin = await requireAdmin();
   const amount = Math.round(Number(input.amount) || 0);
@@ -112,7 +140,7 @@ export async function saveQuickEntry(input: {
           { accountId: acc.id, debit: 0, credit: amount },
         ]
       : [
-          { accountId: acc.id, debit: amount, credit: 0 },
+          { accountId: acc.id, debit: amount, credit: 0, costCenterId: Number(input.costCenterId) || null },
           { accountId: Number(input.moneyAccountId), debit: 0, credit: amount },
         ];
   const r = await createVoucher({ date: input.date, description, source: input.kind, createdBy: admin.name, lines });
@@ -157,7 +185,7 @@ export async function recordGatewaySettlement(input: { date: string; provider: s
   return result;
 }
 
-export async function saveEditedVoucher(input: { id: number; date: string; description: string; lines: { accountId: number; debit: number; credit: number; description?: string }[] }): Promise<Res> {
+export async function saveEditedVoucher(input: { id: number; date: string; description: string; lines: { accountId: number; debit: number; credit: number; description?: string; costCenterId?: number | null }[] }): Promise<Res> {
   await requireAdmin();
   const id = Math.trunc(Number(input.id));
   const date = String(input.date ?? "");
@@ -167,6 +195,7 @@ export async function saveEditedVoucher(input: { id: number; date: string; descr
     accountId: Math.trunc(Number(line.accountId)),
     debit: Math.round(Number(line.debit) || 0),
     credit: Math.round(Number(line.credit) || 0),
+    costCenterId: line.costCenterId ? Math.trunc(Number(line.costCenterId)) : null,
     description: cleanText(line.description, 300),
   })).filter((line) => line.debit || line.credit);
   const parsedDate = new Date(`${date}T00:00:00Z`);
@@ -182,6 +211,11 @@ export async function saveEditedVoucher(input: { id: number; date: string; descr
     const accountIds = Array.from(new Set(lines.map((line) => line.accountId)));
     const selectedAccounts = await tx.select().from(accounts).where(inArray(accounts.id, accountIds));
     if (selectedAccounts.length !== accountIds.length || selectedAccounts.some((account) => !account.isActive || account.level !== 3)) return { ok: false as const, message: "هر ردیف باید به حساب تفصیلی فعال متصل باشد." };
+    const centers = Array.from(new Set(lines.flatMap((line) => line.costCenterId ? [line.costCenterId] : [])));
+    const selectedCenters = centers.length ? await tx.select().from(costCenters).where(inArray(costCenters.id, centers)) : [];
+    if (selectedCenters.length !== centers.length || selectedCenters.some((center) => !center.isActive)) return { ok: false as const, message: "مرکز هزینه انتخاب‌شده فعال یا معتبر نیست." };
+    const accountById = new Map(selectedAccounts.map((account) => [account.id, account]));
+    if (lines.some((line) => line.costCenterId && accountById.get(line.accountId)?.type !== "expense")) return { ok: false as const, message: "مرکز هزینه فقط برای ردیف حساب‌های هزینه قابل ثبت است." };
     await tx.update(journalEntries).set({ date, description }).where(eq(journalEntries.id, id));
     await tx.delete(journalLines).where(eq(journalLines.entryId, id));
     await tx.insert(journalLines).values(lines.map((line) => ({ ...line, entryId: id })));
@@ -220,7 +254,7 @@ export async function reverseVoucher(id: number): Promise<Res> {
     const credit = lines.reduce((sum, line) => sum + Number(line.credit), 0);
     if (lines.length < 2 || lines.some((line) => line.debit > 0 && line.credit > 0) || debit !== credit || debit <= 0) return { ok: false as const, message: "ردیف‌های سند برای برگشت معتبر نیستند یا سند تراز نیست." };
     const [reversal] = await tx.insert(journalEntries).values({ date: todayISO(), description: `برگشت سند شماره ${entry.id} — ${entry.description}`, source: "manual", sourceType, createdBy: admin.name }).returning({ id: journalEntries.id });
-    await tx.insert(journalLines).values(lines.map((line) => ({ entryId: reversal.id, accountId: line.accountId, debit: line.credit, credit: line.debit, description: line.description ? `برگشت: ${line.description}` : `برگشت سند ${entry.id}` })));
+    await tx.insert(journalLines).values(lines.map((line) => ({ entryId: reversal.id, accountId: line.accountId, costCenterId: line.costCenterId, debit: line.credit, credit: line.debit, description: line.description ? `برگشت: ${line.description}` : `برگشت سند ${entry.id}` })));
     return { ok: true as const, id: reversal.id, message: `سند برگشت شماره ${reversal.id} ثبت شد.` };
   });
   if (result.ok) revalidatePath("/admin/accounting", "layout");

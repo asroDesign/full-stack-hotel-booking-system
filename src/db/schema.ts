@@ -590,6 +590,14 @@ export const accounts = pgTable("accounts", {
   isActive: boolean("is_active").notNull().default(true),
 });
 
+export const costCenters = pgTable("cost_centers", {
+  id: serial("id").primaryKey(),
+  code: text("code").notNull().unique(),
+  name: text("name").notNull(),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 export const journalEntries = pgTable(
   "journal_entries",
   {
@@ -616,11 +624,12 @@ export const journalLines = pgTable(
     accountId: integer("account_id")
       .notNull()
       .references(() => accounts.id),
+    costCenterId: integer("cost_center_id").references(() => costCenters.id, { onDelete: "set null" }),
     debit: bigint("debit", { mode: "number" }).notNull().default(0),
     credit: bigint("credit", { mode: "number" }).notNull().default(0),
     description: text("description").notNull().default(""),
   },
-  (t) => [index("jl_entry_idx").on(t.entryId), index("jl_account_idx").on(t.accountId)],
+  (t) => [index("jl_entry_idx").on(t.entryId), index("jl_account_idx").on(t.accountId), index("jl_cost_center_idx").on(t.costCenterId)],
 );
 
 export type Account = typeof accounts.$inferSelect;

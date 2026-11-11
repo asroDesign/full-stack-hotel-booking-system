@@ -29,8 +29,8 @@ export async function GET(req: Request) {
 
   if (report === "journal") {
     const entries = await journalBook(from, to, { source: sp.source || undefined });
-    rows.push(["شماره سند", "تاریخ", "شرح سند", "کد حساب", "نام حساب", "شرح ردیف", "بدهکار", "بستانکار"]);
-    for (const e of entries) for (const l of e.lines) rows.push([e.id, jd(e.date), e.description, l.code, l.name, l.description, Number(l.debit), Number(l.credit)]);
+    rows.push(["شماره سند", "تاریخ", "شرح سند", "کد حساب", "نام حساب", "شرح ردیف", "کد مرکز هزینه", "مرکز هزینه", "بدهکار", "بستانکار"]);
+    for (const e of entries) for (const l of e.lines) rows.push([e.id, jd(e.date), e.description, l.code, l.name, l.description, l.costCenterCode, l.costCenterName, Number(l.debit), Number(l.credit)]);
     name = "journal";
   } else if (report === "trial") {
     const level = ([1, 2, 3].includes(Number(sp.level)) ? Number(sp.level) : 2) as 1 | 2 | 3;
@@ -58,9 +58,9 @@ export async function GET(req: Request) {
     const data = await ledger(Number(sp.account), from, to);
     if (!data) return new Response("Not found", { status: 404 });
     rows.push([`دفتر حساب ${data.account.code} - ${data.account.name}`]);
-    rows.push(["تاریخ", "شماره سند", "حساب", "شرح", "بدهکار", "بستانکار", "مانده"]);
-    rows.push(["", "", "", "مانده ابتدای دوره", "", "", data.opening]);
-    for (const r of data.rows) rows.push([jd(r.date), r.entryId, `${r.code} ${r.name}`, r.description || r.entryDesc, r.debit, r.credit, r.balance]);
+    rows.push(["تاریخ", "شماره سند", "حساب", "شرح", "کد مرکز هزینه", "مرکز هزینه", "بدهکار", "بستانکار", "مانده"]);
+    rows.push(["", "", "", "مانده ابتدای دوره", "", "", "", "", data.opening]);
+    for (const r of data.rows) rows.push([jd(r.date), r.entryId, `${r.code} ${r.name}`, r.description || r.entryDesc, r.costCenterCode, r.costCenterName, r.debit, r.credit, r.balance]);
     name = `ledger-${data.account.code}`;
   } else {
     return new Response("Bad request", { status: 400 });

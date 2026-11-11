@@ -1,6 +1,6 @@
 import { and, asc, eq, gte, inArray, lt, lte, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { accounts, journalEntries, journalLines, reservations, type Account, type AccountType, type Reservation } from "@/db/schema";
+import { accounts, costCenters, journalEntries, journalLines, reservations, type Account, type AccountType, type Reservation } from "@/db/schema";
 
 export const ACC = {
   CASH: "110101",
@@ -89,12 +89,17 @@ export function ensureAccounts(): Promise<void> {
   return ensured;
 }
 
+export async function getCostCenters(activeOnly = false) {
+  const rows = await db.select().from(costCenters).orderBy(asc(costCenters.code));
+  return activeOnly ? rows.filter((center) => center.isActive) : rows;
+}
+
 export async function accountIdsByCode(codes: string[]) {
   const rows = await db.select({ id: accounts.id, code: accounts.code }).from(accounts).where(inArray(accounts.code, codes));
   return new Map(rows.map((r) => [r.code, r.id]));
 }
 
-export type VoucherLineInput = { accountId?: number; code?: string; debit: number; credit: number; description?: string };
+export type VoucherLineInput = { accountId?: number; code?: string; debit: number; credit: number; description?: string; costCenterId?: number | null };
 export type VoucherInput = {
   date: string;
   description: string;
@@ -118,6 +123,7 @@ async function createVoucherRaw(v: VoucherInput): Promise<{ ok: true; id: number
   const lines = v.lines
     .map((l) => ({
       accountId: l.accountId ?? byCode.get(l.code ?? "") ?? 0,
+      costCenterId: Number(l.costCenterId) || null,
       debit: Math.round(Math.max(0, Number(l.debit) || 0)),
       credit: Math.round(Math.max(0, Number(l.credit) || 0)),
       description: String(l.description ?? "").slice(0, 300),
@@ -132,6 +138,13 @@ async function createVoucherRaw(v: VoucherInput): Promise<{ ok: true; id: number
   const accs = await db.select().from(accounts).where(inArray(accounts.id, ids));
   if (accs.length !== ids.length || accs.some((a) => a.level !== 3 || !a.isActive))
     return { ok: false, error: "ثبت سند فقط روی حساب‌های تفصیلی فعال امکان‌پذیر است." };
+  const centers = Array.from(new Set(lines.flatMap((line) => line.costCenterId ? [line.costCenterId] : [])));
+  if (centers.length) {
+    const activeCenters = await db.select().from(costCenters).where(inArray(costCenters.id, centers));
+    if (activeCenters.length !== centers.length || activeCenters.some((center) => !center.isActive)) return { ok: false, error: "مرکز هزینه انتخاب‌شده فعال یا معتبر نیست." };
+    const accountById = new Map(accs.map((account) => [account.id, account]));
+    if (lines.some((line) => line.costCenterId && accountById.get(line.accountId)?.type !== "expense")) return { ok: false, error: "مرکز هزینه فقط برای ردیف حساب‌های هزینه قابل ثبت است." };
+  }
 
   const id = await db.transaction(async (tx) => {
     const [e] = await tx
@@ -393,10 +406,13 @@ export async function journalBook(from: string, to: string, opts: { source?: str
       description: journalLines.description,
       code: accounts.code,
       name: accounts.name,
+      costCenterCode: costCenters.code,
+      costCenterName: costCenters.name,
       id: journalLines.id,
     })
     .from(journalLines)
     .innerJoin(accounts, eq(accounts.id, journalLines.accountId))
+    .leftJoin(costCenters, eq(costCenters.id, journalLines.costCenterId))
     .where(inArray(journalLines.entryId, entries.map((e) => e.id)))
     .orderBy(asc(journalLines.id));
   return entries.map((e) => ({ ...e, lines: lines.filter((l) => l.entryId === e.id) }));
@@ -432,10 +448,13 @@ export async function ledger(accountId: number, from: string, to: string) {
       credit: journalLines.credit,
       code: accounts.code,
       name: accounts.name,
+      costCenterCode: costCenters.code,
+      costCenterName: costCenters.name,
     })
     .from(journalLines)
     .innerJoin(journalEntries, eq(journalEntries.id, journalLines.entryId))
     .innerJoin(accounts, eq(accounts.id, journalLines.accountId))
+    .leftJoin(costCenters, eq(costCenters.id, journalLines.costCenterId))
     .where(and(inArray(journalLines.accountId, idList), gte(journalEntries.date, from), lte(journalEntries.date, to)))
     .orderBy(asc(journalEntries.date), asc(journalEntries.id), asc(journalLines.id))
     .limit(3000);

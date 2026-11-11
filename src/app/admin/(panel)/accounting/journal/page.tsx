@@ -37,14 +37,14 @@ export default async function JournalPage({ searchParams }: { searchParams: Prom
             <div className="overflow-x-auto">
               <table className="table table-sm min-w-[860px]">
                 <thead className="bg-base-200">
-                  <tr><th className="w-20">سند</th><th className="w-28">تاریخ</th><th>کد حساب</th><th>شرح</th><th className="w-36 text-left">بدهکار</th><th className="w-36 text-left">بستانکار</th></tr>
+                  <tr><th className="w-20">سند</th><th className="w-28">تاریخ</th><th>کد حساب</th><th>شرح</th><th>مرکز هزینه</th><th className="w-36 text-left">بدهکار</th><th className="w-36 text-left">بستانکار</th></tr>
                 </thead>
                 {entries.map((e) => (
                   <tbody key={e.id} className="border-b-2 border-base-300">
                     <tr className="bg-base-200/40">
                       <td className="font-bold">#{faNum(e.id)}</td>
                       <td>{formatJalali(e.date)}</td>
-                      <td colSpan={2} className="font-medium">
+                      <td colSpan={3} className="font-medium">
                         {e.description} <span className={cn("badge badge-xs badge-soft mr-1", srcLabel[e.source]?.[1])}>{srcLabel[e.source]?.[0]}</span>{e.sourceType.startsWith("reversal:") && <span className="badge badge-xs badge-warning mr-1">برگشت</span>}
                       </td>
                       <td colSpan={2} className="text-left"><div className="flex justify-end gap-2"><Link href={`/admin/accounting/voucher/${e.id}`} className="btn btn-xs btn-outline">جزئیات / چاپ</Link>{e.source !== "reservation" && e.source !== "payroll" && !e.sourceType && <DeleteVoucherButton id={e.id} />}</div></td>
@@ -54,6 +54,7 @@ export default async function JournalPage({ searchParams }: { searchParams: Prom
                         <td /><td />
                         <td className={cn("font-mono text-xs", Number(l.credit) > 0 && "pr-8")} dir="ltr" style={{ textAlign: "right" }}>{l.code}</td>
                         <td className={cn(Number(l.credit) > 0 && "pr-8")}>{l.name}{l.description && <span className="text-xs text-base-content/50"> — {l.description}</span>}</td>
+                        <td>{l.costCenterName || "—"}</td>
                         <td className="text-left">{Number(l.debit) ? formatPrice(Number(l.debit)) : ""}</td>
                         <td className="text-left">{Number(l.credit) ? formatPrice(Number(l.credit)) : ""}</td>
                       </tr>
@@ -61,7 +62,7 @@ export default async function JournalPage({ searchParams }: { searchParams: Prom
                   </tbody>
                 ))}
                 <tfoot>
-                  <tr className="text-sm font-black"><td colSpan={4}>جمع کل</td><td className="text-left">{formatPrice(td)}</td><td className="text-left">{formatPrice(tc)}</td></tr>
+                  <tr className="text-sm font-black"><td colSpan={5}>جمع کل</td><td className="text-left">{formatPrice(td)}</td><td className="text-left">{formatPrice(tc)}</td></tr>
                 </tfoot>
               </table>
             </div>
