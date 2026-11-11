@@ -1,0 +1,2 @@
+ALTER TABLE "hotel_payroll_entries" ADD COLUMN IF NOT EXISTS "paid_by" integer;--> statement-breakpoint
+DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'hotel_payroll_entries_paid_by_admins_id_fk' AND conrelid = 'public.hotel_payroll_entries'::regclass) THEN ALTER TABLE "hotel_payroll_entries" ADD CONSTRAINT "hotel_payroll_entries_paid_by_admins_id_fk" FOREIGN KEY ("paid_by") REFERENCES "public"."admins"("id") ON DELETE set null ON UPDATE no action; END IF; END $$;

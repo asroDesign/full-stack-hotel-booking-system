@@ -1,0 +1,4 @@
+ALTER TABLE "hotel_staff" ADD COLUMN IF NOT EXISTS "created_by" integer;--> statement-breakpoint
+ALTER TABLE "hotel_staff" ADD COLUMN IF NOT EXISTS "updated_by" integer;--> statement-breakpoint
+DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'hotel_staff_created_by_admins_id_fk' AND conrelid = 'public.hotel_staff'::regclass) THEN ALTER TABLE "hotel_staff" ADD CONSTRAINT "hotel_staff_created_by_admins_id_fk" FOREIGN KEY ("created_by") REFERENCES "public"."admins"("id") ON DELETE set null ON UPDATE no action; END IF; END $$;--> statement-breakpoint
+DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'hotel_staff_updated_by_admins_id_fk' AND conrelid = 'public.hotel_staff'::regclass) THEN ALTER TABLE "hotel_staff" ADD CONSTRAINT "hotel_staff_updated_by_admins_id_fk" FOREIGN KEY ("updated_by") REFERENCES "public"."admins"("id") ON DELETE set null ON UPDATE no action; END IF; END $$;

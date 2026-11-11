@@ -32,7 +32,7 @@ async function onDuty(duty: StaffDuty, now = new Date()) {
     .from(hotelShiftAssignments)
     .innerJoin(hotelShifts, eq(hotelShiftAssignments.shiftId, hotelShifts.id))
     .innerJoin(hotelStaff, eq(hotelShiftAssignments.staffId, hotelStaff.id))
-    .where(and(inArray(hotelShiftAssignments.workDate, [yesterday, date]), eq(hotelShiftAssignments.duty, duty), eq(hotelShifts.isActive, true), eq(hotelStaff.isActive, true)));
+    .where(and(inArray(hotelShiftAssignments.workDate, [yesterday, date]), eq(hotelShiftAssignments.status, "scheduled"), eq(hotelShiftAssignments.duty, duty), eq(hotelShifts.isActive, true), eq(hotelStaff.isActive, true)));
   return rows.filter(({ assignment, shift }) => {
     if (shift.startTime < shift.endTime) return assignment.workDate === date && time >= shift.startTime && time < shift.endTime;
     return (assignment.workDate === date && time >= shift.startTime) || (assignment.workDate === yesterday && time < shift.endTime);

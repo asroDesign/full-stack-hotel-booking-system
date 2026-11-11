@@ -1,0 +1,1 @@
+ALTER TABLE "hotel_payroll_policies" ADD COLUMN IF NOT EXISTS "public_holiday_dates" jsonb DEFAULT '[]'::jsonb NOT NULL;
