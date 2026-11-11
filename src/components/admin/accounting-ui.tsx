@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
 import { Download, Printer, Plus, Trash2, Pencil, FolderTree, ArrowDownCircle, ArrowUpCircle, FileText, Scale } from "lucide-react";
-import { deleteAccount, deleteVoucher, reverseVoucher, saveAccount, saveManualVoucher, saveQuickEntry } from "@/app/actions/accounting";
+import { deleteAccount, deleteVoucher, recordGatewaySettlement, reverseVoucher, saveEditedVoucher, saveAccount, saveManualVoucher, saveQuickEntry } from "@/app/actions/accounting";
 import { JalaliDatePicker } from "@/components/jalali-date-picker";
 import { Modal, Toast } from "./ui";
 import { cn, faNum, formatPrice, isoToJalali, jalaliToISO, todayISO } from "@/lib/utils";
@@ -14,8 +14,10 @@ export type AccRow = { id: number; code: string; name: string; level: number; ty
 const tabs = [
   { href: "/admin/accounting", label: "داشبورد مالی" },
   { href: "/admin/accounting/entry", label: "ثبت درآمد، هزینه و سند" },
+  { href: "/admin/accounting/gateway-settlements", label: "تسویه درگاه" },
   { href: "/admin/accounting/journal", label: "دفتر روزنامه" },
   { href: "/admin/accounting/ledger", label: "دفتر کل / معین" },
+  { href: "/admin/accounting/detail-report", label: "گزارش تفصیلی" },
   { href: "/admin/accounting/trial-balance", label: "تراز آزمایشی" },
   { href: "/admin/accounting/profit-loss", label: "سود و زیان" },
   { href: "/admin/accounting/balance-sheet", label: "ترازنامه" },
@@ -292,6 +294,55 @@ export function ManualVoucherForm({ accounts }: { accounts: AccRow[] }) {
       <Toast message={toast?.msg ?? null} tone={toast?.tone} onDone={() => setToast(null)} />
     </div>
   );
+}
+
+export function VoucherEditForm({ voucher, accounts }: { voucher: { id: number; date: string; description: string; lines: { accountId: number; debit: number; credit: number; description: string }[] }; accounts: AccRow[] }) {
+  const router = useRouter();
+  const [date, setDate] = useState(voucher.date);
+  const [description, setDescription] = useState(voucher.description);
+  const [lines, setLines] = useState(voucher.lines.map((line) => ({ ...line, debit: String(line.debit), credit: String(line.credit) })));
+  const [pending, start] = useTransition();
+  const [toast, setToast] = useState<{ msg: string; tone: "success" | "error" } | null>(null);
+  const updateLine = (index: number, patch: Partial<(typeof lines)[number]>) => setLines((current) => current.map((line, i) => i === index ? { ...line, ...patch } : line));
+  const totalDebit = lines.reduce((sum, line) => sum + (Number(line.debit) || 0), 0);
+  const totalCredit = lines.reduce((sum, line) => sum + (Number(line.credit) || 0), 0);
+  return <details className="rounded-2xl border border-base-300 p-4 print:hidden"><summary className="cursor-pointer font-bold">ویرایش سند</summary><form className="mt-4 space-y-4" onSubmit={(event) => {
+    event.preventDefault();
+    start(async () => {
+      const result = await saveEditedVoucher({ id: voucher.id, date, description, lines: lines.map((line) => ({ accountId: Number(line.accountId), debit: Number(line.debit), credit: Number(line.credit), description: line.description })) });
+      setToast({ msg: result.message, tone: result.ok ? "success" : "error" });
+      if (result.ok) router.refresh();
+    });
+  }}><div className="grid gap-3 md:grid-cols-2"><JalaliDatePicker name="date" label="تاریخ سند" value={date} onChange={setDate} /><label className="form-control"><span className="field-label">شرح سند</span><input className="input" value={description} onChange={(event) => setDescription(event.target.value)} maxLength={500} required /></label></div>
+    <div className="space-y-2">{lines.map((line, index) => <div key={index} className="grid gap-2 rounded-xl bg-base-200/40 p-3 md:grid-cols-[1.3fr_1fr_1fr_1fr_auto]"><select className="select select-sm" value={line.accountId} onChange={(event) => updateLine(index, { accountId: Number(event.target.value) })}>{accounts.filter((account) => account.level === 3 && account.isActive).map((account) => <option key={account.id} value={account.id}>{account.code} · {account.name}</option>)}</select><input className="input input-sm" type="number" min="0" value={line.debit} placeholder="بدهکار" onChange={(event) => updateLine(index, { debit: event.target.value, credit: event.target.value ? "0" : line.credit })} /><input className="input input-sm" type="number" min="0" value={line.credit} placeholder="بستانکار" onChange={(event) => updateLine(index, { credit: event.target.value, debit: event.target.value ? "0" : line.debit })} /><input className="input input-sm" value={line.description} placeholder="شرح ردیف" maxLength={300} onChange={(event) => updateLine(index, { description: event.target.value })} /><button type="button" className="btn btn-sm btn-ghost text-error" disabled={lines.length <= 2} onClick={() => setLines((current) => current.filter((_, i) => i !== index))} aria-label="حذف ردیف">×</button></div>)}</div>
+    <div className="flex flex-wrap items-center justify-between gap-3"><button type="button" className="btn btn-sm btn-outline" disabled={lines.length >= 100} onClick={() => setLines((current) => [...current, { accountId: accounts.find((account) => account.level === 3 && account.isActive)?.id ?? 0, debit: "0", credit: "0", description: "" }])}>افزودن ردیف</button><span className={totalDebit === totalCredit ? "text-sm font-bold text-success" : "text-sm font-bold text-error"}>بدهکار {formatPrice(totalDebit)} · بستانکار {formatPrice(totalCredit)}</span><button disabled={pending || totalDebit <= 0 || totalDebit !== totalCredit} className="btn btn-primary">ذخیره سند</button></div>
+  </form><Toast message={toast?.msg ?? null} tone={toast?.tone} onDone={() => setToast(null)} /></details>;
+}
+
+export function GatewaySettlementForm() {
+  const router = useRouter();
+  const [date, setDate] = useState(todayISO());
+  const [pending, start] = useTransition();
+  const [toast, setToast] = useState<{ msg: string; tone: "success" | "error" } | null>(null);
+  return <form className="card card-border bg-base-100 shadow-sm" onSubmit={(event) => {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    const grossAmount = Number(data.get("grossAmount"));
+    const netAmount = Number(data.get("netAmount"));
+    const feeAmount = Number(data.get("feeAmount"));
+    start(async () => {
+      const result = await recordGatewaySettlement({ date, provider: String(data.get("provider") ?? ""), reference: String(data.get("reference") ?? ""), grossAmount, netAmount, feeAmount });
+      setToast({ msg: result.message, tone: result.ok ? "success" : "error" });
+      if (result.ok) router.refresh();
+    });
+  }}><div className="card-body gap-3 p-4"><div><h3 className="font-extrabold">ثبت تسویه درگاه</h3><p className="mt-1 text-xs text-base-content/55">سند به‌صورت بدهکار بانک و کارمزد، بستانکار مانده درگاه ثبت می‌شود.</p></div><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+    <JalaliDatePicker name="date" label="تاریخ واریز" value={date} onChange={setDate} />
+    <label className="form-control"><span className="field-label">درگاه</span><select className="select" name="provider"><option value="zarinpal">زرین‌پال</option><option value="zibal">زیبال</option><option value="saman">سامان</option><option value="mellat">ملت</option><option value="other">سایر</option></select></label>
+    <label className="form-control"><span className="field-label">شماره پیگیری / فایل تسویه</span><input className="input" name="reference" required maxLength={100} /></label>
+    <label className="form-control"><span className="field-label">ناخالص تسویه (تومان)</span><input className="input" name="grossAmount" type="number" min="1" required /></label>
+    <label className="form-control"><span className="field-label">واریزی خالص به بانک</span><input className="input" name="netAmount" type="number" min="0" required /></label>
+    <label className="form-control"><span className="field-label">کارمزد درگاه</span><input className="input" name="feeAmount" type="number" min="0" required defaultValue="0" /></label>
+  </div><button disabled={pending} className="btn btn-primary self-start">{pending && <span className="loading loading-spinner loading-sm" />}ثبت سند تسویه</button></div><Toast message={toast?.msg ?? null} tone={toast?.tone} onDone={() => setToast(null)} /></form>;
 }
 
 export function PrintButton({ label = "چاپ سند" }: { label?: string }) {

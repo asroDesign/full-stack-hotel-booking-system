@@ -47,7 +47,7 @@ export default async function JournalPage({ searchParams }: { searchParams: Prom
                       <td colSpan={2} className="font-medium">
                         {e.description} <span className={cn("badge badge-xs badge-soft mr-1", srcLabel[e.source]?.[1])}>{srcLabel[e.source]?.[0]}</span>{e.sourceType.startsWith("reversal:") && <span className="badge badge-xs badge-warning mr-1">برگشت</span>}
                       </td>
-                      <td colSpan={2} className="text-left"><div className="flex justify-end gap-2"><Link href={`/admin/accounting/voucher/${e.id}`} className="btn btn-xs btn-outline">جزئیات / چاپ</Link>{e.source !== "reservation" && e.source !== "payroll" && !e.sourceType.startsWith("reversal:") && <DeleteVoucherButton id={e.id} />}</div></td>
+                      <td colSpan={2} className="text-left"><div className="flex justify-end gap-2"><Link href={`/admin/accounting/voucher/${e.id}`} className="btn btn-xs btn-outline">جزئیات / چاپ</Link>{e.source !== "reservation" && e.source !== "payroll" && !e.sourceType && <DeleteVoucherButton id={e.id} />}</div></td>
                     </tr>
                     {e.lines.map((l) => (
                       <tr key={l.id}>

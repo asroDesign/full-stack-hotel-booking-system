@@ -1,6 +1,6 @@
 "use server";
 
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db } from "@/db";
 import { accounts, journalEntries, journalLines, type AccountType } from "@/db/schema";
@@ -121,11 +121,81 @@ export async function saveQuickEntry(input: {
   return { ok: true, message: `${input.kind === "income" ? "درآمد" : "هزینه"} با سند شماره ${r.id} ثبت شد.`, id: r.id };
 }
 
+export async function recordGatewaySettlement(input: { date: string; provider: string; reference: string; grossAmount: number; netAmount: number; feeAmount: number }): Promise<Res> {
+  const admin = await requireAdmin();
+  const date = String(input.date ?? "");
+  const provider = String(input.provider ?? "");
+  const providerNames: Record<string, string> = { zarinpal: "زرین‌پال", zibal: "زیبال", saman: "سامان", mellat: "ملت", other: "سایر" };
+  const reference = cleanText(input.reference, 100);
+  const gross = Math.round(Number(input.grossAmount) || 0);
+  const net = Math.round(Number(input.netAmount) || 0);
+  const fee = Math.round(Number(input.feeAmount) || 0);
+  if (!ISO.test(date)) return { ok: false, message: "تاریخ تسویه معتبر نیست." };
+  if (!providerNames[provider] || !reference) return { ok: false, message: "نام درگاه و شماره پیگیری معتبر الزامی است." };
+  if (![gross, net, fee].every(Number.isSafeInteger) || gross <= 0 || net < 0 || fee < 0 || net + fee !== gross) return { ok: false, message: "مبلغ ناخالص باید با جمع واریزی خالص و کارمزد برابر باشد." };
+  await ensureAccounts();
+  const sourceType = `gateway-settlement:${provider}:${reference}`;
+  const result = await db.transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${sourceType}))`);
+    const [existing] = await tx.select({ id: journalEntries.id }).from(journalEntries).where(eq(journalEntries.sourceType, sourceType));
+    if (existing) return { ok: false as const, message: "این شماره پیگیری قبلاً در تسویه درگاه ثبت شده است." };
+    const allAccounts = await tx.select().from(accounts);
+    const bank = allAccounts.find((account) => account.code === "110201");
+    const gateway = allAccounts.find((account) => account.code === "110202");
+    const feeAccount = allAccounts.find((account) => account.code === "520201");
+    if (!bank?.isActive || bank.level !== 3 || bank.type !== "asset" || !gateway?.isActive || gateway.level !== 3 || gateway.type !== "asset" || (fee > 0 && (!feeAccount?.isActive || feeAccount.level !== 3 || feeAccount.type !== "expense"))) return { ok: false as const, message: "حساب‌های بانک، درگاه یا کارمزد فعال و معتبر نیستند." };
+    const [document] = await tx.insert(journalEntries).values({ date, description: `تسویه درگاه ${providerNames[provider]} · پیگیری ${reference}`, source: "manual", sourceType, createdBy: admin.name }).returning({ id: journalEntries.id });
+    const lines = [
+      { entryId: document.id, accountId: bank.id, debit: net, credit: 0, description: `واریزی خالص درگاه ${providerNames[provider]}` },
+      ...(fee && feeAccount ? [{ entryId: document.id, accountId: feeAccount.id, debit: fee, credit: 0, description: `کارمزد تسویه درگاه ${providerNames[provider]}` }] : []),
+      { entryId: document.id, accountId: gateway.id, debit: 0, credit: gross, description: `خروج از مانده درگاه ${providerNames[provider]}` },
+    ].filter((line) => line.debit || line.credit);
+    await tx.insert(journalLines).values(lines);
+    return { ok: true as const, id: document.id, message: `تسویه درگاه با سند شماره ${document.id} ثبت شد.` };
+  });
+  if (result.ok) revalidatePath("/admin/accounting", "layout");
+  return result;
+}
+
+export async function saveEditedVoucher(input: { id: number; date: string; description: string; lines: { accountId: number; debit: number; credit: number; description?: string }[] }): Promise<Res> {
+  await requireAdmin();
+  const id = Math.trunc(Number(input.id));
+  const date = String(input.date ?? "");
+  const description = cleanText(input.description, 500);
+  const rawLines = Array.isArray(input.lines) ? input.lines.slice(0, 100) : [];
+  const lines = rawLines.map((line) => ({
+    accountId: Math.trunc(Number(line.accountId)),
+    debit: Math.round(Number(line.debit) || 0),
+    credit: Math.round(Number(line.credit) || 0),
+    description: cleanText(line.description, 300),
+  })).filter((line) => line.debit || line.credit);
+  const parsedDate = new Date(`${date}T00:00:00Z`);
+  if (!Number.isSafeInteger(id) || id <= 0 || !ISO.test(date) || !Number.isFinite(parsedDate.getTime()) || parsedDate.toISOString().slice(0, 10) !== date) return { ok: false, message: "شماره سند یا تاریخ معتبر نیست." };
+  if (!description || lines.length < 2 || lines.some((line) => !Number.isSafeInteger(line.accountId) || line.accountId <= 0 || line.debit < 0 || line.credit < 0 || (line.debit > 0 && line.credit > 0)) || lines.reduce((sum, line) => sum + line.debit, 0) !== lines.reduce((sum, line) => sum + line.credit, 0) || lines.reduce((sum, line) => sum + line.debit, 0) <= 0) return { ok: false, message: "شرح و ردیف‌های سند باید کامل و تراز باشند." };
+  await ensureAccounts();
+  const result = await db.transaction(async (tx) => {
+    const [entry] = await tx.select().from(journalEntries).where(eq(journalEntries.id, id)).for("update");
+    if (!entry) return { ok: false as const, message: "سند یافت نشد." };
+    if (!["manual", "income", "expense"].includes(entry.source) || entry.sourceType) return { ok: false as const, message: "این سند خودکار یا دارای گردش خاص است و قابل ویرایش نیست." };
+    const [reversal] = await tx.select({ id: journalEntries.id }).from(journalEntries).where(and(eq(journalEntries.source, "manual"), eq(journalEntries.sourceType, `reversal:${id}`)));
+    if (reversal) return { ok: false as const, message: "سندی که برگشت خورده قابل ویرایش نیست." };
+    const accountIds = Array.from(new Set(lines.map((line) => line.accountId)));
+    const selectedAccounts = await tx.select().from(accounts).where(inArray(accounts.id, accountIds));
+    if (selectedAccounts.length !== accountIds.length || selectedAccounts.some((account) => !account.isActive || account.level !== 3)) return { ok: false as const, message: "هر ردیف باید به حساب تفصیلی فعال متصل باشد." };
+    await tx.update(journalEntries).set({ date, description }).where(eq(journalEntries.id, id));
+    await tx.delete(journalLines).where(eq(journalLines.entryId, id));
+    await tx.insert(journalLines).values(lines.map((line) => ({ ...line, entryId: id })));
+    return { ok: true as const, message: `سند ${id} ویرایش و ذخیره شد.`, id };
+  });
+  if (result.ok) revalidatePath("/admin/accounting", "layout");
+  return result;
+}
+
 export async function deleteVoucher(id: number): Promise<Res> {
   await requireAdmin();
   const [e] = await db.select().from(journalEntries).where(eq(journalEntries.id, id));
   if (!e) return { ok: false, message: "سند یافت نشد." };
-  if (e.source === "reservation" || e.source === "payroll" || e.sourceType.startsWith("reversal:")) return { ok: false, message: "اسناد خودکار یا سند برگشتی از این مسیر حذف نمی‌شوند." };
+  if (e.source === "reservation" || e.source === "payroll" || e.sourceType) return { ok: false, message: "اسناد خودکار، تسویه‌ای یا برگشتی از این مسیر حذف نمی‌شوند." };
   const [reversal] = await db.select({ id: journalEntries.id }).from(journalEntries).where(and(eq(journalEntries.source, "manual"), eq(journalEntries.sourceType, `reversal:${id}`)));
   if (reversal) return { ok: false, message: "برای این سند برگشت ثبت شده است؛ حذف آن مجاز نیست." };
   await db.delete(journalEntries).where(eq(journalEntries.id, id));

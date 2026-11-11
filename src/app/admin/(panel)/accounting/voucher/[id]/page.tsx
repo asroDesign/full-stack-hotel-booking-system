@@ -3,7 +3,8 @@ import { notFound } from "next/navigation";
 import { and, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { accounts, journalEntries, journalLines } from "@/db/schema";
-import { PrintButton, ReverseVoucherButton } from "@/components/admin/accounting-ui";
+import { getAccounts } from "@/lib/accounting";
+import { PrintButton, ReverseVoucherButton, VoucherEditForm } from "@/components/admin/accounting-ui";
 import { faNum, formatJalali, formatPrice } from "@/lib/utils";
 
 const sourceName: Record<string, string> = { reservation: "رزرو خودکار", income: "درآمد", expense: "هزینه", manual: "سند دستی", payroll: "حقوق و بیمه" };
@@ -17,6 +18,7 @@ export default async function VoucherPage({ params }: { params: Promise<{ id: st
     .where(eq(journalEntries.id, id)).orderBy(journalLines.id);
   if (!rows.length) notFound();
   const entry = rows[0].entry;
+  const accountChoices = (await getAccounts()).map((account) => ({ id: account.id, code: account.code, name: account.name, level: account.level, type: account.type, parentId: account.parentId, isSystem: account.isSystem, isActive: account.isActive }));
   const debitTotal = rows.reduce((sum, row) => sum + Number(row.line.debit), 0);
   const creditTotal = rows.reduce((sum, row) => sum + Number(row.line.credit), 0);
   const [reversal] = await db.select({ id: journalEntries.id }).from(journalEntries).where(and(eq(journalEntries.source, "manual"), eq(journalEntries.sourceType, `reversal:${entry.id}`)));
@@ -30,6 +32,7 @@ export default async function VoucherPage({ params }: { params: Promise<{ id: st
       {reversedFrom && <div className="alert alert-info">این سند برگشتی است و سند اصلی آن <Link className="link font-bold" href={`/admin/accounting/voucher/${reversedFrom}`}>شماره {faNum(Number(reversedFrom))}</Link> است.</div>}
       <div className="overflow-x-auto"><table className="table"><thead><tr><th>ردیف</th><th>کد حساب</th><th>حساب</th><th>شرح ردیف</th><th className="text-left">بدهکار (تومان)</th><th className="text-left">بستانکار (تومان)</th></tr></thead><tbody>{rows.map(({ line, account }, index) => <tr key={line.id}><td>{faNum(index + 1)}</td><td dir="ltr" className="font-mono">{account.code}</td><td>{account.name}</td><td>{line.description || entry.description}</td><td className="text-left">{line.debit ? formatPrice(Number(line.debit)) : "—"}</td><td className="text-left">{line.credit ? formatPrice(Number(line.credit)) : "—"}</td></tr>)}</tbody><tfoot><tr className="font-black"><td colSpan={4}>جمع سند</td><td className="text-left">{formatPrice(debitTotal)}</td><td className="text-left">{formatPrice(creditTotal)}</td></tr></tfoot></table></div>
       <div className={`alert ${debitTotal === creditTotal ? "alert-success" : "alert-error"}`}>{debitTotal === creditTotal ? "سند تراز است." : "سند تراز نیست؛ ردیف‌ها نیاز به بررسی دارند."}</div>
+      {entry.source !== "reservation" && entry.source !== "payroll" && !entry.sourceType && !reversal && <VoucherEditForm voucher={{ id: entry.id, date: entry.date, description: entry.description, lines: rows.map(({ line }) => ({ accountId: line.accountId, debit: Number(line.debit), credit: Number(line.credit), description: line.description })) }} accounts={accountChoices} />}
     </div></article>
   </div>;
 }
