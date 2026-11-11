@@ -123,11 +123,11 @@ function TemplateSection({ staff, shifts, templates, day }: { staff: Staff[]; sh
       <label className="flex items-center gap-2 text-sm"><input className="checkbox checkbox-primary" name="isLead" type="checkbox" /> سرشیفت این بخش</label>
       <button className="btn btn-primary md:col-span-4">ساخت الگوی هفتگی</button>
     </form>
-    {templates.length > 0 && <div className="space-y-2 border-t border-base-200 pt-3">{templates.map(({ template, staff: person, shift }) => <div key={template.id} className="grid items-end gap-2 md:grid-cols-[1fr_1fr_2fr_2fr_auto]">
+    {templates.length > 0 && <details className="border-t border-base-200 pt-3"><summary className="cursor-pointer text-sm font-semibold">الگوهای ثبت‌شده <span className="badge badge-ghost badge-sm">{faNum(templates.length)}</span></summary><div className="mt-3 space-y-2">{templates.map(({ template, staff: person, shift }) => <div key={template.id} className="grid items-end gap-2 rounded-xl bg-base-200/40 p-3 md:grid-cols-[1fr_1fr_2fr_2fr_auto]">
       <div className="text-sm font-semibold">{template.name}</div><div className="text-sm">{person.fullName} · {shift.name}</div><div className="text-xs text-base-content/60">{template.weekdays.split(",").map((v) => weekdays[Number(v)]).filter(Boolean).join("، ")} · {dutyLabel[template.duty]}{template.isLead ? " · سرشیفت" : ""}</div>
       <form action={applyShiftTemplate} className="flex flex-wrap items-end gap-2"><input type="hidden" name="templateId" value={template.id} /><JalaliDatePicker name="dateFrom" label="از" value={from} onChange={setFrom} /><JalaliDatePicker name="dateTo" label="تا" value={to} onChange={setTo} /><button className="btn btn-sm btn-secondary">اعمال الگو</button></form>
       <form action={toggleShiftTemplate}><input type="hidden" name="id" value={template.id} /><button className={`btn btn-xs ${template.isActive ? "btn-success" : "btn-ghost"}`}>{template.isActive ? "غیرفعال‌کردن" : "فعال‌کردن"}</button></form>
-    </div>)}</div>}
+    </div>)}</div></details>}
   </section>;
 }
 
@@ -280,93 +280,167 @@ function PayrollEditor({ row }: { row: Payroll }) {
   );
 }
 
+function InsuranceSection({ staff, payroll, search, setSearch }: { staff: Staff[]; payroll: Map<number, Payroll>; search: string; setSearch: (value: string) => void }) {
+  const rows = staff.filter((person) => `${person.fullName} ${person.jobTitle} ${person.insuranceNumber} ${person.nationalId}`.toLowerCase().includes(search.trim().toLowerCase()));
+  const insured = staff.filter((person) => person.insuranceEnabled && person.insuranceNumber).length;
+  return <section id="insurance" role="tabpanel" className="space-y-4">
+    <div className="flex flex-wrap items-end justify-between gap-3">
+      <div><h2 className="text-xl font-extrabold">پروندهٔ بیمه</h2><p className="mt-1 text-sm text-base-content/60">وضعیت پوشش، سابقه و مبالغ بیمهٔ آخرین لیست حقوق ثبت‌شده.</p></div>
+      <label className="form-control w-full max-w-xs"><span className="field-label">جست‌وجوی پرسنل</span><input className="input input-bordered" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="نام، کد ملی یا شماره بیمه" /></label>
+    </div>
+    <div className="grid gap-3 sm:grid-cols-3">
+      <div className="rounded-2xl border border-base-300 bg-base-100 p-4"><div className="text-xs text-base-content/60">کل پرونده‌ها</div><div className="mt-1 text-2xl font-black">{faNum(staff.length)}</div></div>
+      <div className="rounded-2xl border border-emerald-200 bg-emerald-50/70 p-4"><div className="text-xs text-emerald-900/70">دارای شماره بیمه</div><div className="mt-1 text-2xl font-black text-emerald-900">{faNum(insured)}</div></div>
+      <div className="rounded-2xl border border-amber-200 bg-amber-50/70 p-4"><div className="text-xs text-amber-900/70">نیازمند تکمیل اطلاعات</div><div className="mt-1 text-2xl font-black text-amber-900">{faNum(staff.length - insured)}</div></div>
+    </div>
+    <div className="overflow-x-auto rounded-2xl border border-base-300 bg-base-100 shadow-sm">
+      <table className="table table-zebra">
+        <thead><tr><th>کارمند</th><th>کد ملی</th><th>شماره بیمه</th><th>سابقه</th><th>مبنای بیمه آخرین دوره</th><th>سهم کارمند</th><th>سهم کارفرما</th><th>وضعیت</th></tr></thead>
+        <tbody>{rows.map((person) => {
+          const latest = payroll.get(person.id);
+          const base = latest?.entry.earningComponents.filter((item) => item.insurable).reduce((sum, item) => sum + item.amountToman, 0) ?? 0;
+          return <tr key={person.id}>
+            <td><div className="font-bold">{person.fullName}</div><div className="text-xs text-base-content/60">{person.jobTitle || dutyLabel[person.duty]}</div></td>
+            <td dir="ltr" className="text-right font-mono text-xs">{person.nationalId || "—"}</td>
+            <td dir="ltr" className="text-right font-mono text-xs">{person.insuranceNumber || "ثبت نشده"}</td>
+            <td>{faNum(person.insuredHistoryDays)} روز</td>
+            <td>{latest ? money(base) : "—"}</td>
+            <td>{latest ? money(latest.entry.employeeInsuranceToman) : "—"}</td>
+            <td>{latest ? money(latest.entry.employerInsuranceToman) : "—"}</td>
+            <td><span className={`badge ${person.insuranceEnabled && person.insuranceNumber ? "badge-success" : "badge-warning"}`}>{person.insuranceEnabled && person.insuranceNumber ? "فعال" : person.insuranceEnabled ? "فاقد شماره" : "غیرفعال"}</span></td>
+          </tr>;
+        })}</tbody>
+      </table>
+      {!rows.length && <div className="p-8 text-center text-sm text-base-content/60">پرسنلی با این مشخصات پیدا نشد.</div>}
+    </div>
+  </section>;
+}
+
 export function StaffAdmin({ staff, shifts, schedule, payroll, day, currentJalaliYear, templates, leaveRequests, swaps, adjustments, payrollLeaves, policy, attendanceEvents }: { staff: Staff[]; shifts: Shift[]; schedule: Schedule[]; payroll: Payroll[]; day: string; currentJalaliYear: number; templates: Template[]; leaveRequests: Leave[]; swaps: Swap[]; adjustments: Adjustment[]; payrollLeaves: PayrollLeave[]; policy: PayrollPolicyCore; attendanceEvents: AttendanceEvent[] }) {
-  const [activeTab, setActiveTab] = useState<"people" | "shifts" | "schedule" | "payroll">("people");
+  const [activeTab, setActiveTab] = useState<"people" | "insurance" | "shifts" | "payroll">("people");
+  const [shiftTab, setShiftTab] = useState<"definitions" | "templates" | "schedule" | "swaps">("definitions");
   const [payrollTab, setPayrollTab] = useState<"list" | "extras" | "policy">("list");
   const [scheduleDate, setScheduleDate] = useState(day);
+  const [search, setSearch] = useState("");
+  const [dutyFilter, setDutyFilter] = useState("all");
   const { jm: currentMonth } = toJalaali(...day.split("-").map(Number) as [number, number, number]);
   const [payrollYear, setPayrollYear] = useState(currentJalaliYear);
   const [payrollMonth, setPayrollMonth] = useState(currentMonth);
-  const periods = Array.from(new Map(payroll.map((p) => [p.period.id, p.period])).values());
+  const periods = Array.from(new Map(payroll.map((row) => [row.period.id, row.period])).values());
+  const latestPayroll = new Map<number, Payroll>();
+  for (const row of payroll) if (!latestPayroll.has(row.staff.id)) latestPayroll.set(row.staff.id, row);
+  const filteredStaff = staff.filter((person) => (dutyFilter === "all" || person.duty === dutyFilter) && `${person.fullName} ${person.jobTitle} ${person.phone}`.toLowerCase().includes(search.trim().toLowerCase()));
+  const insuredCount = staff.filter((person) => person.insuranceEnabled && person.insuranceNumber).length;
+  const setHash = (hash: string) => window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}#${hash}`);
+  const selectMainTab = (id: "people" | "insurance" | "shifts" | "payroll") => {
+    setActiveTab(id);
+    setHash(id === "people" ? "people" : id === "insurance" ? "insurance" : id === "shifts" ? shiftTab : "payroll");
+  };
+  const selectShiftTab = (id: "definitions" | "templates" | "schedule" | "swaps") => {
+    setShiftTab(id);
+    setHash(id === "definitions" ? "shifts" : id);
+  };
+  const selectPayrollTab = (id: "list" | "extras" | "policy") => {
+    setPayrollTab(id);
+    setHash(id === "list" ? "payroll" : id === "extras" ? "leave" : "policy");
+  };
+
   useEffect(() => {
     const hash = window.location.hash.slice(1);
-    if (["people"].includes(hash)) setActiveTab("people");
-    if (["shifts", "templates"].includes(hash)) setActiveTab("shifts");
-    if (["schedule", "swaps"].includes(hash)) setActiveTab("schedule");
-    if (["payroll", "leave", "adjustments", "policy"].includes(hash)) setActiveTab("payroll");
-    if (hash === "leave" || hash === "adjustments") setPayrollTab("extras");
-    if (hash === "policy") setPayrollTab("policy");
+    if (hash === "insurance") setActiveTab("insurance");
+    if (hash === "people") setActiveTab("people");
+    if (["shifts", "templates", "schedule", "swaps"].includes(hash)) {
+      setActiveTab("shifts");
+      if (hash === "templates") setShiftTab("templates");
+      if (hash === "schedule") setShiftTab("schedule");
+      if (hash === "swaps") setShiftTab("swaps");
+    }
+    if (["payroll", "leave", "adjustments", "policy"].includes(hash)) {
+      setActiveTab("payroll");
+      if (hash === "leave" || hash === "adjustments") setPayrollTab("extras");
+      if (hash === "policy") setPayrollTab("policy");
+    }
+    if (!hash && new URLSearchParams(window.location.search).has("day")) {
+      setActiveTab("shifts");
+      setShiftTab("schedule");
+    }
   }, []);
-  return (
-    <div className="space-y-6">
-      <div role="tablist" aria-label="بخش‌های نیروی انسانی" className="tabs tabs-boxed w-fit max-w-full flex-wrap">
-        {([ ["people", "نیروی انسانی"], ["shifts", "تعریف شیفت‌ها"], ["schedule", "برنامه و حضور"], ["payroll", "حقوق و دستمزد"] ] as const).map(([id, label]) => <button key={id} type="button" role="tab" aria-selected={activeTab === id} className={`tab ${activeTab === id ? "tab-active" : ""}`} onClick={() => setActiveTab(id)}>{label}</button>)}
+
+  const mainTabs = [["people", "نیروی انسانی"], ["insurance", "بیمه"], ["shifts", "شیفت‌ها"], ["payroll", "حقوق و دستمزد"]] as const;
+  const shiftTabs = [["definitions", "تعریف شیفت"], ["templates", "الگوهای هفتگی"], ["schedule", "برنامه و حضور"], ["swaps", "جابه‌جایی شیفت"]] as const;
+  const payrollTabs = [["list", "لیست حقوق ماهانه"], ["extras", "مرخصی، تشویقی و جریمه"], ["policy", "تنظیمات قانونی سالانه"]] as const;
+
+  return <div className="space-y-5">
+    <section className="rounded-3xl border border-base-300 bg-gradient-to-br from-base-100 via-base-100 to-primary/5 p-5 shadow-sm md:p-6">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div><span className="badge badge-outline mb-2">مدیریت منابع انسانی</span><h2 className="text-2xl font-black tracking-tight">همراهی تیم، از شیفت تا پرداخت</h2><p className="mt-2 max-w-2xl text-sm leading-6 text-base-content/65">پروندهٔ کارکنان، پوشش بیمه، برنامهٔ شیفت و لیست حقوق را از یک پنل مرتب پیگیری کنید.</p></div>
+        <div className="rounded-2xl bg-primary/10 px-4 py-3 text-sm"><div className="text-xs text-base-content/60">دورهٔ جاری</div><div className="mt-1 font-bold">{faNum(currentJalaliYear)} · {faNum(currentMonth)}</div></div>
       </div>
-      {activeTab === "people" && <section id="people" role="tabpanel" className="space-y-3">
-        <h2 className="text-lg font-extrabold">تعریف نیروی انسانی <span className="badge badge-ghost">{faNum(staff.length)}</span></h2>
-        <p className="text-sm text-base-content/60">اطلاعات تماس و نرخ پرداخت را برای هر نیرو ثبت کنید. شماره همراه برای پیامک‌های وظایف شیفت استفاده می‌شود.</p>
-        <StaffForm />
-        <div className="grid gap-3 lg:grid-cols-2">{staff.map((person) => <StaffForm key={person.id} staff={person} />)}</div>
-      </section>}
+      <div className="mt-5 grid grid-cols-2 gap-3 xl:grid-cols-4">
+        {[["پرسنل فعال", staff.filter((person) => person.isActive).length, "از " + faNum(staff.length) + " پرونده"], ["پروندهٔ بیمه", insuredCount, "دارای شمارهٔ بیمه"], ["تعریف شیفت", shifts.filter((shift) => shift.isActive).length, "شیفت فعال"], ["برنامهٔ امروز", schedule.length, formatJalali(day, true)]].map(([label, value, hint]) => <div key={String(label)} className="rounded-2xl border border-base-300/80 bg-base-100/85 p-3.5"><div className="text-xs text-base-content/60">{label}</div><div className="mt-1 text-2xl font-black">{faNum(Number(value))}</div><div className="mt-1 text-[11px] text-base-content/50">{hint}</div></div>)}
+      </div>
+    </section>
 
-      {activeTab === "shifts" && <section id="shifts" role="tabpanel" className="space-y-3">
-        <h2 className="text-lg font-extrabold">تعریف شیفت‌های کاری</h2>
-        <p className="text-sm text-base-content/60">ساعت پایان کمتر از شروع به‌عنوان شیفت شبانه در نظر گرفته می‌شود.</p>
-        <ShiftForm />
-        <div className="grid gap-3 lg:grid-cols-2">{shifts.map((shift) => <ShiftForm key={shift.id} shift={shift} />)}</div>
-        <TemplateSection staff={staff} shifts={shifts} templates={templates} day={day} />
-      </section>}
-
-      {activeTab === "schedule" && <section id="schedule" role="tabpanel" className="space-y-3">
-        <h2 className="text-lg font-extrabold">برنامه و حضور شیفت‌ها</h2>
-        <form method="get" action="/admin/staff" className="flex flex-wrap items-end gap-3 rounded-box bg-base-100 p-4"><JalaliDatePicker name="day" label="تاریخ برنامه" value={scheduleDate} onChange={setScheduleDate} /><button className="btn btn-sm">نمایش روز</button></form>
-        <AssignmentForm staff={staff} shifts={shifts} day={day} />
-        {schedule.length ? <div className="overflow-x-auto rounded-box border border-base-300 bg-base-100"><table className="table"><thead><tr><th>نیرو</th><th>شیفت / بخش</th><th>سرشیفت</th><th>حضور و غیاب</th><th /></tr></thead><tbody>{schedule.map((row) => <tr key={row.assignment.id}><td><div className="font-bold">{row.staff.fullName}</div><div className="text-xs text-base-content/60">{row.staff.phone || "شماره ثبت نشده"}</div></td><td>{row.shift.name} · {row.shift.startTime} تا {row.shift.endTime}<div className="text-xs text-base-content/60">{dutyLabel[row.assignment.duty]}</div></td><td>{row.assignment.isLead ? <span className="badge badge-primary">مسئول اصلی</span> : "—"}</td><td><AttendanceActions row={row} day={day} events={attendanceEvents.filter((item) => item.event.recordId === row.attendance?.id)} /></td><td>{row.assignment.status !== "cancelled" && <form action={removeShiftAssignment}><input type="hidden" name="id" value={row.assignment.id} /><input type="hidden" name="workDate" value={day} /><button className="btn btn-xs btn-ghost text-error">لغو برنامه</button></form>}</td></tr>)}</tbody></table></div> : <div className="rounded-box border border-dashed p-6 text-center text-sm text-base-content/60">برای {formatJalali(day, true)} هنوز برنامه شیفتی ثبت نشده است.</div>}
-      </section>}
-
-      {activeTab === "schedule" && <section id="swaps" role="tabpanel" className="space-y-3 rounded-box border border-base-300 bg-base-100 p-4">
-        <div><h3 className="font-bold">جابه‌جایی شیفت‌ها</h3><p className="text-xs text-base-content/60">تغییر مسئول برنامه فقط پس از بررسی هم‌پوشانی و تأیید مدیر اعمال می‌شود.</p></div>
-        {schedule.length > 0 && <div className="space-y-2">{schedule.map((row) => <form key={row.assignment.id} action={createShiftSwapRequest} className="flex flex-wrap items-end gap-2 border-b border-base-200 pb-2">
-          <input type="hidden" name="assignmentId" value={row.assignment.id} /><div className="min-w-40 text-sm"><b>{row.staff.fullName}</b> · {row.shift.name} · {formatJalali(day, true)}</div>
-          <label className="form-control"><span className="field-label">جایگزین پیشنهادی</span><select className="select select-sm" name="toStaffId" required defaultValue=""><option value="" disabled>انتخاب</option>{staff.filter((p) => p.isActive && p.id !== row.staff.id).map((p) => <option key={p.id} value={p.id}>{p.fullName}</option>)}</select></label>
-          <label className="form-control"><span className="field-label">دلیل</span><input className="input input-sm" name="reason" maxLength={300} /></label><button className="btn btn-sm">ثبت درخواست</button>
-        </form>)}</div>}
-        {swaps.length > 0 && <div className="divide-y divide-base-200">{swaps.map(({ request, assignment }) => <div key={request.id} className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm"><div>{staff.find((p) => p.id === request.fromStaffId)?.fullName || "نیروی حذف‌شده"} ← {staff.find((p) => p.id === request.toStaffId)?.fullName || "نیروی حذف‌شده"} · {formatJalali(assignment.workDate, true)}<div className="text-xs text-base-content/60">{request.reason || "بدون توضیح"} · {statusLabel[request.status]}</div></div>{request.status === "pending" && <div className="flex gap-2">{["approved", "rejected"].map((status) => <form key={status} action={decideShiftSwap}><input type="hidden" name="id" value={request.id} /><input type="hidden" name="status" value={status} /><button className={`btn btn-xs ${status === "approved" ? "btn-success" : "btn-error"}`}>{status === "approved" ? "تأیید" : "رد"}</button></form>)}</div>}</div>)}</div>}
-      </section>}
-
-      {activeTab === "payroll" && <section id="payroll" role="tabpanel" className="space-y-3">
-        <h2 className="text-lg font-extrabold">حقوق و دستمزد</h2>
-        <p className="text-sm text-base-content/60">دوره بر اساس ماه شمسی ساخته می‌شود. مزد پایه، مزایا، اضافه‌کاری، جمعه‌کاری، شب‌کاری، مرخصی، بیمه و مالیات از پروفایل و حضور ثبت‌شده snapshot می‌شوند.</p>
-        <div role="tablist" aria-label="بخش‌های حقوق و دستمزد" className="tabs tabs-boxed w-fit max-w-full flex-wrap">
-          {([["list", "لیست حقوق ماهانه"], ["extras", "مرخصی، تشویقی و جریمه"], ["policy", "تنظیمات قانونی سالانه"]] as const).map(([id, label]) => <button key={id} type="button" role="tab" aria-selected={payrollTab === id} className={`tab ${payrollTab === id ? "tab-active" : ""}`} onClick={() => setPayrollTab(id)}>{label}</button>)}
-        </div>
-        {payrollTab === "list" && <div className="space-y-3">
-        <div className="grid gap-3 rounded-box border border-base-300 bg-base-100 p-4">
-          <form action={generateJalaliPayroll} className="grid gap-3 md:grid-cols-4">
-            <label className="form-control"><span className="field-label">سال شمسی</span><input className="input" name="jalaliYear" type="number" min="1300" max="1600" value={payrollYear} onChange={(e) => setPayrollYear(Number(e.target.value))} /></label>
-            <label className="form-control"><span className="field-label">ماه شمسی</span><select className="select" name="jalaliMonth" value={payrollMonth} onChange={(e) => setPayrollMonth(Number(e.target.value))}>{["فروردین", "اردیبهشت", "خرداد", "تیر", "مرداد", "شهریور", "مهر", "آبان", "آذر", "دی", "بهمن", "اسفند"].map((name, index) => <option key={name} value={index + 1}>{name}</option>)}</select></label>
-            <label className="form-control"><span className="field-label">عنوان دوره</span><input className="input" name="title" placeholder="اختیاری" /></label>
-            <button className="btn btn-primary self-end">ساخت snapshot پیش‌نویس</button>
-          </form>
-        </div>
-        {!periods.length ? <div className="rounded-box border border-dashed p-5 text-center text-sm text-base-content/60">هنوز دوره‌ای ساخته نشده است.</div> : periods.map((period) => (
-          <div key={period.id} className="space-y-3 rounded-box border border-base-300 bg-base-100 p-4">
-            <div className="flex flex-wrap items-center justify-between gap-2"><h3 className="font-bold">{period.title} · {formatJalali(period.dateFrom)} تا {formatJalali(period.dateTo)}</h3><div className="flex items-center gap-2"><span className="badge">{period.status === "paid" ? "پرداخت‌شده" : period.status === "approved" ? "تأییدشده" : "پیش‌نویس"}</span>{period.status === "draft" && <>{period.jalaliYear > 0 && <form action={generateJalaliPayroll}><input type="hidden" name="jalaliYear" value={period.jalaliYear} /><input type="hidden" name="jalaliMonth" value={period.jalaliMonth} /><input type="hidden" name="rebuild" value="on" /><button className="btn btn-xs btn-outline" title="بازسازی محاسبه، ردیف فعلی و اصلاح دستی آن را جایگزین می‌کند">بازسازی پیش‌نویس</button></form>}<form action={approvePayrollPeriod}><input type="hidden" name="id" value={period.id} /><button className="btn btn-xs btn-primary">تأیید دوره</button></form></>}</div></div>
-            {payroll.filter((row) => row.period.id === period.id).map((row) => <div key={row.entry.id} className="grid gap-2 border-t border-base-200 pt-3 md:grid-cols-[1fr_1fr_2fr]"><div><b>{row.staff.fullName}</b><div className="text-xs text-base-content/60">حضور: {faNum(row.entry.regularMinutes)} دقیقه · اضافه‌کاری: {faNum(row.entry.overtimeMinutes)} دقیقه · مرخصی: {faNum(row.entry.leaveMinutes)} دقیقه</div></div><div className="font-bold">خالص: {money(row.entry.netToman)}</div><PayrollEditor row={row} /></div>)}
-          </div>
-        ))}
-        </div>}
-        {payrollTab === "extras" && <div className="space-y-3">
-          <div className="grid gap-3 rounded-box border border-base-300 bg-base-100 p-4 md:grid-cols-2">
-            <label className="form-control"><span className="field-label">سال شمسی مرخصی و تعدیلات</span><input className="input" type="number" min="1300" max="1600" value={payrollYear} onChange={(event) => setPayrollYear(Number(event.target.value))} /></label>
-            <label className="form-control"><span className="field-label">ماه شمسی مرخصی و تعدیلات</span><select className="select" value={payrollMonth} onChange={(event) => setPayrollMonth(Number(event.target.value))}>{["فروردین", "اردیبهشت", "خرداد", "تیر", "مرداد", "شهریور", "مهر", "آبان", "آذر", "دی", "بهمن", "اسفند"].map((name, index) => <option key={name} value={index + 1}>{name}</option>)}</select></label>
-          </div>
-          <PayrollLeaveSection staff={staff} leaves={payrollLeaves} year={payrollYear} month={payrollMonth} />
-          <LeaveSection staff={staff} requests={leaveRequests} />
-          <AdjustmentSection staff={staff} adjustments={adjustments} year={payrollYear} month={payrollMonth} />
-        </div>}
-        {payrollTab === "policy" && <PayrollPolicySection policy={policy} />}
-      </section>}
+    <div role="tablist" aria-label="بخش‌های نیروی انسانی" className="tabs tabs-boxed w-full flex-wrap rounded-2xl border border-base-300 bg-base-100 p-1.5 shadow-sm">
+      {mainTabs.map(([id, label]) => <button key={id} type="button" role="tab" aria-selected={activeTab === id} className={`tab flex-1 rounded-xl font-bold ${activeTab === id ? "tab-active" : ""}`} onClick={() => selectMainTab(id)}>{label}</button>)}
     </div>
-  );
+
+    {activeTab === "people" && <section id="people" role="tabpanel" className="space-y-4">
+      <div className="flex flex-wrap items-end justify-between gap-3"><div><h3 className="text-xl font-extrabold">فهرست نیروی انسانی</h3><p className="mt-1 text-sm text-base-content/60">اطلاعات شغلی و مالی را باز کنید تا پروندهٔ کامل هر نفر را ویرایش کنید.</p></div><details className="dropdown dropdown-end">
+        <summary className="btn btn-primary rounded-xl">افزودن نیروی جدید</summary><div className="dropdown-content z-20 mt-3 w-[min(92vw,900px)] rounded-2xl border border-base-300 bg-base-100 p-4 shadow-2xl"><StaffForm /></div>
+      </details></div>
+      <div className="grid gap-3 rounded-2xl border border-base-300 bg-base-100 p-4 md:grid-cols-[1fr_220px]"><label className="form-control"><span className="field-label">جست‌وجو</span><input className="input input-bordered" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="نام، عنوان شغلی یا شماره همراه" /></label><label className="form-control"><span className="field-label">بخش کاری</span><select className="select select-bordered" value={dutyFilter} onChange={(event) => setDutyFilter(event.target.value)}><option value="all">همهٔ بخش‌ها</option>{Object.entries(dutyLabel).map(([key, value]) => <option key={key} value={key}>{value}</option>)}</select></label></div>
+      {filteredStaff.length ? <div className="grid gap-3 xl:grid-cols-2">{filteredStaff.map((person) => <article key={person.id} className="rounded-2xl border border-base-300 bg-base-100 p-4 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3"><div className="flex items-center gap-3"><div className="grid h-11 w-11 place-items-center rounded-2xl bg-primary/10 font-black text-primary">{person.fullName.slice(0, 1)}</div><div><div className="font-extrabold">{person.fullName}</div><div className="mt-0.5 text-xs text-base-content/60">{person.jobTitle || dutyLabel[person.duty]} · {person.phone || "شماره همراه ثبت نشده"}</div></div></div><span className={`badge ${person.isActive ? "badge-success" : "badge-ghost"}`}>{person.isActive ? "فعال" : "غیرفعال"}</span></div>
+        <div className="mt-4 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4"><div className="rounded-xl bg-base-200/60 p-2"><div className="text-base-content/50">بخش</div><b>{dutyLabel[person.duty]}</b></div><div className="rounded-xl bg-base-200/60 p-2"><div className="text-base-content/50">حقوق پایه</div><b>{money(person.salaryMode === "fixed" ? person.fixedAgreedSalaryToman : person.monthlyBaseSalaryToman || person.monthlySalary)}</b></div><div className="rounded-xl bg-base-200/60 p-2"><div className="text-base-content/50">بیمه</div><b>{person.insuranceEnabled && person.insuranceNumber ? "پرونده کامل" : "نیازمند تکمیل"}</b></div><div className="rounded-xl bg-base-200/60 p-2"><div className="text-base-content/50">شماره بیمه</div><b dir="ltr" className="font-mono">{person.insuranceNumber || "—"}</b></div></div>
+        <details className="mt-3 border-t border-base-200 pt-3"><summary className="cursor-pointer text-sm font-bold text-primary">ویرایش پروندهٔ پرسنلی و بیمه</summary><div className="mt-3"><StaffForm staff={person} /></div></details>
+      </article>)}</div> : <div className="rounded-2xl border border-dashed border-base-300 p-10 text-center text-sm text-base-content/60">کارمندی با این فیلتر پیدا نشد.</div>}
+    </section>}
+
+    {activeTab === "insurance" && <InsuranceSection staff={staff} payroll={latestPayroll} search={search} setSearch={setSearch} />}
+
+    {activeTab === "shifts" && <section id="shifts" role="tabpanel" className="space-y-4">
+      <div><h3 className="text-xl font-extrabold">مدیریت شیفت و حضور</h3><p className="mt-1 text-sm text-base-content/60">از تعریف ساعت کاری تا برنامهٔ نیروها و ثبت ورود و خروج.</p></div>
+      <div role="tablist" aria-label="بخش‌های شیفت" className="tabs tabs-bordered w-full overflow-x-auto whitespace-nowrap">
+        {shiftTabs.map(([id, label]) => <button key={id} type="button" role="tab" aria-selected={shiftTab === id} className={`tab font-semibold ${shiftTab === id ? "tab-active" : ""}`} onClick={() => selectShiftTab(id)}>{label}</button>)}
+      </div>
+      {shiftTab === "definitions" && <div className="space-y-4">
+        <div className="flex flex-wrap items-end justify-between gap-3"><div><h4 className="font-bold">تعریف ساعت‌های کاری</h4><p className="mt-1 text-xs text-base-content/60">پایان قبل از شروع، شیفت شبانه محسوب می‌شود.</p></div><details className="dropdown dropdown-end"><summary className="btn btn-primary btn-sm rounded-xl">تعریف شیفت تازه</summary><div className="dropdown-content z-20 mt-3 w-[min(92vw,760px)] rounded-2xl border border-base-300 bg-base-100 p-4 shadow-2xl"><ShiftForm /></div></details></div>
+        <div className="grid gap-3 lg:grid-cols-3">{shifts.map((shift) => <div key={shift.id} className="rounded-2xl border border-base-300 bg-base-100 p-4 shadow-sm"><div className="mb-3 flex items-center justify-between"><div><div className="font-extrabold">{shift.name}</div><div className="mt-1 text-xs text-base-content/60">{shift.startTime} تا {shift.endTime} · {faNum(shift.breakMinutes)} دقیقه استراحت</div></div><span className={`badge ${shift.isActive ? "badge-success" : "badge-ghost"}`}>{shift.isActive ? "فعال" : "غیرفعال"}</span></div><details className="border-t border-base-200 pt-3"><summary className="cursor-pointer text-sm font-semibold">ویرایش مشخصات شیفت</summary><div className="mt-3"><ShiftForm shift={shift} /></div></details></div>)}</div>
+      </div>}
+      {shiftTab === "templates" && <TemplateSection staff={staff} shifts={shifts} templates={templates} day={day} />}
+      {shiftTab === "schedule" && <section id="schedule" className="space-y-4">
+        <div className="flex flex-wrap items-end justify-between gap-3"><div><h4 className="font-bold">برنامه و حضور روزانه</h4><p className="mt-1 text-xs text-base-content/60">برنامهٔ {formatJalali(day, true)} را بررسی و وضعیت حضور را ثبت کنید.</p></div><form method="get" action="/admin/staff" className="flex flex-wrap items-end gap-2 rounded-2xl border border-base-300 bg-base-100 p-3"><JalaliDatePicker name="day" label="تاریخ برنامه" value={scheduleDate} onChange={setScheduleDate} /><button className="btn btn-sm btn-outline">نمایش تاریخ</button></form></div>
+        <details className="rounded-2xl border border-base-300 bg-base-100 p-4"><summary className="cursor-pointer font-bold text-primary">ثبت برنامهٔ جدید</summary><div className="mt-4"><AssignmentForm staff={staff} shifts={shifts} day={day} /></div></details>
+        {schedule.length ? <div className="overflow-x-auto rounded-2xl border border-base-300 bg-base-100 shadow-sm"><table className="table table-zebra"><thead><tr><th>نیرو</th><th>شیفت / بخش</th><th>سرشیفت</th><th>حضور و غیاب</th><th>مدیریت</th></tr></thead><tbody>{schedule.map((row) => <tr key={row.assignment.id}><td><div className="font-bold">{row.staff.fullName}</div><div className="text-xs text-base-content/60">{row.staff.phone || "شماره ثبت نشده"}</div></td><td>{row.shift.name} · {row.shift.startTime} تا {row.shift.endTime}<div className="text-xs text-base-content/60">{dutyLabel[row.assignment.duty]}</div></td><td>{row.assignment.isLead ? <span className="badge badge-primary">مسئول اصلی</span> : "—"}</td><td><AttendanceActions row={row} day={day} events={attendanceEvents.filter((item) => item.event.recordId === row.attendance?.id)} /></td><td>{row.assignment.status !== "cancelled" && <form action={removeShiftAssignment}><input type="hidden" name="id" value={row.assignment.id} /><input type="hidden" name="workDate" value={day} /><button className="btn btn-xs btn-ghost text-error">لغو برنامه</button></form>}</td></tr>)}</tbody></table></div> : <div className="rounded-2xl border border-dashed border-base-300 p-8 text-center text-sm text-base-content/60">برای این روز برنامه‌ای ثبت نشده است.</div>}
+      </section>}
+      {shiftTab === "swaps" && <section id="swaps" className="space-y-4 rounded-2xl border border-base-300 bg-base-100 p-4">
+        <div><h4 className="font-bold">درخواست‌های جابه‌جایی شیفت</h4><p className="mt-1 text-xs text-base-content/60">تغییر مسئول برنامه پس از بررسی تداخل و تأیید مدیر اعمال می‌شود.</p></div>
+        {schedule.length > 0 && <div className="space-y-2">{schedule.map((row) => <form key={row.assignment.id} action={createShiftSwapRequest} className="grid gap-2 rounded-xl bg-base-200/40 p-3 md:grid-cols-[1fr_1fr_1fr_auto]"><input type="hidden" name="assignmentId" value={row.assignment.id} /><div className="self-center text-sm"><b>{row.staff.fullName}</b><div className="text-xs text-base-content/60">{row.shift.name} · {formatJalali(day, true)}</div></div><label className="form-control"><span className="field-label">جایگزین پیشنهادی</span><select className="select select-sm" name="toStaffId" required defaultValue=""><option value="" disabled>انتخاب نیرو</option>{staff.filter((person) => person.isActive && person.id !== row.staff.id).map((person) => <option key={person.id} value={person.id}>{person.fullName}</option>)}</select></label><label className="form-control"><span className="field-label">دلیل</span><input className="input input-sm" name="reason" maxLength={300} /></label><button className="btn btn-sm btn-outline self-end">ثبت درخواست</button></form>)}</div>}
+        {swaps.length > 0 ? <div className="divide-y divide-base-200">{swaps.map(({ request, assignment }) => <div key={request.id} className="flex flex-wrap items-center justify-between gap-2 py-3 text-sm"><div>{staff.find((person) => person.id === request.fromStaffId)?.fullName || "نیروی حذف‌شده"} ← {staff.find((person) => person.id === request.toStaffId)?.fullName || "نیروی حذف‌شده"} · {formatJalali(assignment.workDate, true)}<div className="text-xs text-base-content/60">{request.reason || "بدون توضیح"} · {statusLabel[request.status]}</div></div>{request.status === "pending" && <div className="flex gap-2">{["approved", "rejected"].map((status) => <form key={status} action={decideShiftSwap}><input type="hidden" name="id" value={request.id} /><input type="hidden" name="status" value={status} /><button className={`btn btn-xs ${status === "approved" ? "btn-success" : "btn-error"}`}>{status === "approved" ? "تأیید" : "رد"}</button></form>)}</div>}</div>)}</div> : <div className="rounded-xl bg-base-200/50 p-5 text-center text-sm text-base-content/60">درخواست جابه‌جایی ثبت‌شده‌ای وجود ندارد.</div>}
+      </section>}
+    </section>}
+
+    {activeTab === "payroll" && <section id="payroll" role="tabpanel" className="space-y-4">
+      <div><span className="badge badge-outline mb-2">محاسبات ماهانه و مقررات</span><h3 className="text-xl font-extrabold">حقوق و دستمزد</h3><p className="mt-1 text-sm text-base-content/60">فهرست ماهانه، مزایا و مرخصی‌ها، و نرخ‌های قانونی در تب‌های جداگانه.</p></div>
+      <div role="tablist" aria-label="بخش‌های حقوق و دستمزد" className="tabs tabs-boxed w-full flex-wrap rounded-2xl border border-base-300 bg-base-100 p-1.5 shadow-sm">{payrollTabs.map(([id, label]) => <button key={id} type="button" role="tab" aria-selected={payrollTab === id} className={`tab flex-1 rounded-xl font-bold ${payrollTab === id ? "tab-active" : ""}`} onClick={() => selectPayrollTab(id)}>{label}</button>)}</div>
+      {payrollTab === "list" && <div className="space-y-4">
+        <form action={generateJalaliPayroll} className="grid gap-3 rounded-2xl border border-base-300 bg-base-100 p-4 shadow-sm md:grid-cols-4"><label className="form-control"><span className="field-label">سال شمسی</span><input className="input input-bordered" name="jalaliYear" type="number" min="1300" max="1600" value={payrollYear} onChange={(event) => setPayrollYear(Number(event.target.value))} /></label><label className="form-control"><span className="field-label">ماه شمسی</span><select className="select select-bordered" name="jalaliMonth" value={payrollMonth} onChange={(event) => setPayrollMonth(Number(event.target.value))}>{["فروردین", "اردیبهشت", "خرداد", "تیر", "مرداد", "شهریور", "مهر", "آبان", "آذر", "دی", "بهمن", "اسفند"].map((name, index) => <option key={name} value={index + 1}>{name}</option>)}</select></label><label className="form-control"><span className="field-label">عنوان دوره</span><input className="input input-bordered" name="title" placeholder="اختیاری" /></label><button className="btn btn-primary self-end rounded-xl">ساخت لیست حقوق</button></form>
+        {!periods.length ? <div className="rounded-2xl border border-dashed border-base-300 p-10 text-center text-sm text-base-content/60">هنوز لیست حقوقی ساخته نشده است. سال و ماه را انتخاب و «ساخت لیست حقوق» را بزنید.</div> : periods.map((period) => {
+          const rows = payroll.filter((row) => row.period.id === period.id);
+          const grossTotal = rows.reduce((sum, row) => sum + row.entry.grossToman, 0);
+          const netTotal = rows.reduce((sum, row) => sum + row.entry.netToman, 0);
+          return <section key={period.id} className="overflow-hidden rounded-2xl border border-base-300 bg-base-100 shadow-sm"><div className="flex flex-wrap items-center justify-between gap-3 border-b border-base-200 bg-base-200/30 p-4"><div><h4 className="font-extrabold">{period.title}</h4><div className="mt-1 text-xs text-base-content/60">{formatJalali(period.dateFrom)} تا {formatJalali(period.dateTo)} · {faNum(rows.length)} نفر</div></div><div className="flex flex-wrap items-center gap-2"><span className={`badge ${period.status === "paid" ? "badge-success" : period.status === "approved" ? "badge-info" : "badge-warning"}`}>{period.status === "paid" ? "پرداخت‌شده" : period.status === "approved" ? "تأییدشده" : "پیش‌نویس"}</span>{period.status === "draft" && <>{period.jalaliYear > 0 && <form action={generateJalaliPayroll}><input type="hidden" name="jalaliYear" value={period.jalaliYear} /><input type="hidden" name="jalaliMonth" value={period.jalaliMonth} /><input type="hidden" name="rebuild" value="on" /><button className="btn btn-sm btn-outline rounded-xl">بازسازی محاسبه</button></form>}<form action={approvePayrollPeriod}><input type="hidden" name="id" value={period.id} /><button className="btn btn-sm btn-primary rounded-xl">تأیید لیست</button></form></>}</div></div>
+            <div className="grid gap-3 border-b border-base-200 p-4 sm:grid-cols-3"><div className="rounded-xl bg-base-200/50 p-3 text-xs">جمع ناخالص <b className="mt-1 block text-sm">{money(grossTotal)}</b></div><div className="rounded-xl bg-base-200/50 p-3 text-xs">خالص پرداختی <b className="mt-1 block text-sm">{money(netTotal)}</b></div><div className="rounded-xl bg-base-200/50 p-3 text-xs">افراد دارای ردیف حقوق <b className="mt-1 block text-sm">{faNum(rows.length)} نفر</b></div></div>
+            <div className="overflow-x-auto"><table className="table table-zebra"><thead><tr><th>کارمند</th><th>کارکرد</th><th>اضافه‌کاری</th><th>بیمه</th><th>مالیات</th><th>خالص پرداختی</th><th>جزئیات</th></tr></thead><tbody>{rows.map((row) => <tr key={row.entry.id}><td className="font-bold">{row.staff.fullName}<div className="text-xs font-normal text-base-content/60">{row.staff.jobTitle || dutyLabel[row.staff.duty]}</div></td><td>{faNum(Math.round(row.entry.regularMinutes / 60))} ساعت</td><td>{faNum(Math.round(row.entry.overtimeMinutes / 60))} ساعت</td><td>{money(row.entry.employeeInsuranceToman)}</td><td>{money(row.entry.incomeTaxToman)}</td><td className="font-extrabold text-primary">{money(row.entry.netToman)}{row.entry.paymentStatus === "paid" && <span className="badge badge-success badge-sm ms-2">پرداخت شد</span>}</td><td><PayrollEditor row={row} /></td></tr>)}</tbody></table></div>
+          </section>;
+        })}
+      </div>}
+      {payrollTab === "extras" && <div className="space-y-4">
+        <div className="grid gap-3 rounded-2xl border border-base-300 bg-base-100 p-4 md:grid-cols-2"><label className="form-control"><span className="field-label">سال شمسی</span><input className="input input-bordered" type="number" min="1300" max="1600" value={payrollYear} onChange={(event) => setPayrollYear(Number(event.target.value))} /></label><label className="form-control"><span className="field-label">ماه شمسی</span><select className="select select-bordered" value={payrollMonth} onChange={(event) => setPayrollMonth(Number(event.target.value))}>{["فروردین", "اردیبهشت", "خرداد", "تیر", "مرداد", "شهریور", "مهر", "آبان", "آذر", "دی", "بهمن", "اسفند"].map((name, index) => <option key={name} value={index + 1}>{name}</option>)}</select></label></div>
+        <PayrollLeaveSection staff={staff} leaves={payrollLeaves} year={payrollYear} month={payrollMonth} /><LeaveSection staff={staff} requests={leaveRequests} /><AdjustmentSection staff={staff} adjustments={adjustments} year={payrollYear} month={payrollMonth} />
+      </div>}
+      {payrollTab === "policy" && <PayrollPolicySection policy={policy} />}
+    </section>}
+  </div>;
 }
