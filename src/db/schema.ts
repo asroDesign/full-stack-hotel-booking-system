@@ -297,6 +297,103 @@ export const smsLogs = pgTable("sms_logs", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+/* ---------- hotel staffing, shifts, operations and payroll ---------- */
+export type StaffDuty = "reception" | "housekeeping" | "maintenance" | "operations";
+export type HotelTaskStatus = "open" | "in_progress" | "done" | "cancelled";
+
+export const hotelStaff = pgTable("hotel_staff", {
+  id: serial("id").primaryKey(),
+  fullName: text("full_name").notNull(),
+  phone: text("phone").notNull().default(""),
+  jobTitle: text("job_title").notNull().default(""),
+  duty: text("duty").$type<StaffDuty>().notNull().default("operations"),
+  salaryMode: text("salary_mode").$type<"monthly" | "hourly">().notNull().default("monthly"),
+  monthlySalary: integer("monthly_salary").notNull().default(0),
+  hourlyRate: integer("hourly_rate").notNull().default(0),
+  isActive: boolean("is_active").notNull().default(true),
+  notes: text("notes").notNull().default(""),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [index("hotel_staff_duty_active_idx").on(t.duty, t.isActive)]);
+
+export const hotelShifts = pgTable("hotel_shifts", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  startTime: text("start_time").notNull(),
+  endTime: text("end_time").notNull(),
+  breakMinutes: integer("break_minutes").notNull().default(0),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const hotelShiftAssignments = pgTable("hotel_shift_assignments", {
+  id: serial("id").primaryKey(),
+  workDate: date("work_date").notNull(),
+  shiftId: integer("shift_id").notNull().references(() => hotelShifts.id, { onDelete: "cascade" }),
+  staffId: integer("staff_id").notNull().references(() => hotelStaff.id, { onDelete: "cascade" }),
+  duty: text("duty").$type<StaffDuty>().notNull(),
+  isLead: boolean("is_lead").notNull().default(false),
+  notes: text("notes").notNull().default(""),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [unique("hotel_shift_assignments_unique").on(t.workDate, t.shiftId, t.staffId), index("hotel_shift_assignments_date_duty_idx").on(t.workDate, t.duty)]);
+
+export const hotelAttendance = pgTable("hotel_attendance", {
+  id: serial("id").primaryKey(),
+  assignmentId: integer("assignment_id").notNull().references(() => hotelShiftAssignments.id, { onDelete: "cascade" }).unique(),
+  status: text("status").$type<"scheduled" | "present" | "late" | "absent" | "leave">().notNull().default("scheduled"),
+  clockInAt: timestamp("clock_in_at"),
+  clockOutAt: timestamp("clock_out_at"),
+  workedMinutes: integer("worked_minutes").notNull().default(0),
+  overtimeMinutes: integer("overtime_minutes").notNull().default(0),
+  note: text("note").notNull().default(""),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const hotelPayrollPeriods = pgTable("hotel_payroll_periods", {
+  id: serial("id").primaryKey(),
+  title: text("title").notNull(),
+  dateFrom: date("date_from").notNull(),
+  dateTo: date("date_to").notNull(),
+  status: text("status").$type<"draft" | "approved" | "paid">().notNull().default("draft"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [unique("hotel_payroll_periods_dates_unique").on(t.dateFrom, t.dateTo)]);
+
+export const hotelPayrollEntries = pgTable("hotel_payroll_entries", {
+  id: serial("id").primaryKey(),
+  periodId: integer("period_id").notNull().references(() => hotelPayrollPeriods.id, { onDelete: "cascade" }),
+  staffId: integer("staff_id").notNull().references(() => hotelStaff.id, { onDelete: "restrict" }),
+  regularMinutes: integer("regular_minutes").notNull().default(0),
+  overtimeMinutes: integer("overtime_minutes").notNull().default(0),
+  basePay: integer("base_pay").notNull().default(0),
+  overtimePay: integer("overtime_pay").notNull().default(0),
+  bonus: integer("bonus").notNull().default(0),
+  deductions: integer("deductions").notNull().default(0),
+  netPay: integer("net_pay").notNull().default(0),
+  paymentStatus: text("payment_status").$type<"unpaid" | "paid">().notNull().default("unpaid"),
+  paidAt: timestamp("paid_at"),
+  paymentRef: text("payment_ref").notNull().default(""),
+  notes: text("notes").notNull().default(""),
+}, (t) => [unique("hotel_payroll_entries_period_staff_unique").on(t.periodId, t.staffId)]);
+
+export const hotelTasks = pgTable("hotel_tasks", {
+  id: serial("id").primaryKey(),
+  taskType: text("task_type").$type<"reservation" | "checkin" | "housekeeping" | "guest_request" | "maintenance" | "manual">().notNull(),
+  duty: text("duty").$type<StaffDuty>(),
+  title: text("title").notNull(),
+  description: text("description").notNull().default(""),
+  workDate: date("work_date").notNull(),
+  priority: text("priority").$type<"low" | "normal" | "high" | "urgent">().notNull().default("normal"),
+  status: text("status").$type<HotelTaskStatus>().notNull().default("open"),
+  roomId: integer("room_id").references(() => rooms.id, { onDelete: "set null" }),
+  reservationId: integer("reservation_id").references(() => reservations.id, { onDelete: "set null" }),
+  assignmentId: integer("assignment_id").references(() => hotelShiftAssignments.id, { onDelete: "set null" }),
+  assignedStaffId: integer("assigned_staff_id").references(() => hotelStaff.id, { onDelete: "set null" }),
+  sourceKey: text("source_key").unique(),
+  smsStatus: text("sms_status").notNull().default(""),
+  smsSentAt: timestamp("sms_sent_at"),
+  completedAt: timestamp("completed_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [index("hotel_tasks_status_date_idx").on(t.status, t.workDate), index("hotel_tasks_room_status_idx").on(t.roomId, t.status)]);
+
 /* ---------- double-entry accounting ---------- */
 export type AccountType = "asset" | "liability" | "equity" | "revenue" | "expense";
 

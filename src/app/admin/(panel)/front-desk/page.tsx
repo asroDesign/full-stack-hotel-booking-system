@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { and, asc, eq, inArray, isNotNull, isNull, lte, gt, or } from "drizzle-orm";
-import { BedDouble, LogIn, LogOut, Users, AlertTriangle, Plus, CalendarRange } from "lucide-react";
+import { BedDouble, LogIn, LogOut, Users, AlertTriangle, Plus, CalendarRange, ClipboardList } from "lucide-react";
 import { db } from "@/db";
 import { partners, reservations, rooms } from "@/db/schema";
 import { PageHeader } from "@/components/admin/ui";
@@ -57,7 +57,7 @@ export default async function FrontDesk() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="میز پذیرش" desc={`امروز ${formatJalali(today, true)}`} action={<div className="flex gap-2"><Link href="/admin/calendar" className="btn"><CalendarRange className="h-4 w-4" /> تقویم</Link><Link href="/admin/reservations/new" className="btn btn-primary"><Plus className="h-4 w-4" /> پذیرش حضوری / رزرو جدید</Link></div>} />
+      <PageHeader title="میز پذیرش" desc={`امروز ${formatJalali(today, true)}`} action={<div className="flex flex-wrap gap-2"><Link href="/admin/calendar" className="btn"><CalendarRange className="h-4 w-4" /> تقویم</Link><Link href="/admin/operations" className="btn"><ClipboardList className="h-4 w-4" /> هماهنگی کارها</Link><Link href="/admin/reservations/new" className="btn btn-primary"><Plus className="h-4 w-4" /> پذیرش حضوری / رزرو جدید</Link></div>} />
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
         {[
           ["ورودی امروز", arrivals.length, "text-success"],

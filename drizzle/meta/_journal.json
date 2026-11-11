@@ -43,6 +43,13 @@
       "when": 1794356031979,
       "tag": "0005_stay_packages",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1794387233000,
+      "tag": "0006_staff_operations",
+      "breakpoints": true
     }
   ]
 }

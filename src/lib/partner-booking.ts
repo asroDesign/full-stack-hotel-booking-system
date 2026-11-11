@@ -1,4 +1,5 @@
 import { and, asc, eq, or, sql } from "drizzle-orm";
+import { after } from "next/server";
 import { db } from "@/db";
 import { reservationGuests, reservations, rooms, type Partner, type Reservation } from "@/db/schema";
 import { roomConflicts } from "./availability";
@@ -8,6 +9,7 @@ import { linkReservationCustomer, normalizeMobile } from "./crm";
 import { notifyAdmins, notifyGuest } from "./sms";
 import { cleanText } from "./security";
 import { diffDays, genReservationCode, genTrackingCode, todayISO } from "./utils";
+import { notifyReceptionShiftForReservation } from "./hotel-operations";
 
 const ISO = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -172,6 +174,7 @@ export async function createPartnerReservation(p: Partner, input: CreateInput): 
   await syncReservationVouchers(created);
   await linkReservationCustomer(created).catch(() => null);
   await notifyAdmins(created, "paid").catch(() => null);
+  after(() => notifyReceptionShiftForReservation(created));
   if (confirmed) await notifyGuest(created, "guest_confirmed").catch(() => null);
   return { status: 201, body: { ok: true, reservation: serializeReservation(created) } };
 }

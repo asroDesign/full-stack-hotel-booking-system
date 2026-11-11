@@ -17,6 +17,7 @@ import type { PaymentGatewayId } from "@/db/schema";
 import { sign, verifySigned } from "@/lib/app-secret";
 import { grantPublicAccess, hasPublicAccess } from "@/lib/public-access";
 import { addDaysISO, todayISO, toEnDigits } from "@/lib/utils";
+import { notifyShiftForGuestRequest } from "@/lib/hotel-operations";
 
 export type GState = { ok?: boolean; error?: string; message?: string; redirect?: import("@/lib/payment-providers").GatewayRedirect } | null;
 const s = (fd: FormData, k: string, max = 200) => toEnDigits(cleanText(fd.get(k), max));
@@ -174,7 +175,8 @@ export async function stayNewRequest(_p: GState, fd: FormData): Promise<GState> 
   const category = CATS.includes(String(fd.get("category"))) ? String(fd.get("category")) : "other";
   if (body.length < 3) return { error: "متن درخواست را بنویسید." };
   const [q] = await db.insert(guestRequests).values({ reservationId: r.id, category }).returning();
-  await db.insert(guestRequestMessages).values({ requestId: q.id, sender: "guest", body });
+  const [message] = await db.insert(guestRequestMessages).values({ requestId: q.id, sender: "guest", body }).returning({ id: guestRequestMessages.id });
+  after(() => notifyShiftForGuestRequest({ reservation: r, requestId: q.id, messageId: message.id, category, body }));
   revalidatePath("/stay");
   revalidatePath("/admin", "layout");
   return { ok: true, message: "درخواست شما برای پذیرش ارسال شد." };
@@ -189,8 +191,9 @@ export async function stayReply(requestId: number, body: string): Promise<GState
   if (text.length < 1) return { error: "متن پیام خالی است." };
   const [q] = await db.select().from(guestRequests).where(and(eq(guestRequests.id, requestId), eq(guestRequests.reservationId, r.id)));
   if (!q) return { error: "درخواست یافت نشد." };
-  await db.insert(guestRequestMessages).values({ requestId, sender: "guest", body: text });
+  const [message] = await db.insert(guestRequestMessages).values({ requestId, sender: "guest", body: text }).returning({ id: guestRequestMessages.id });
   await db.update(guestRequests).set({ unreadStaff: true, unreadGuest: false, updatedAt: new Date(), status: q.status === "done" ? "open" : q.status }).where(eq(guestRequests.id, requestId));
+  after(() => notifyShiftForGuestRequest({ reservation: r, requestId, messageId: message.id, category: q.category, body: text }));
   revalidatePath("/stay");
   revalidatePath("/admin", "layout");
   return { ok: true, message: "ارسال شد." };

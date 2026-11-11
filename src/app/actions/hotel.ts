@@ -1,6 +1,6 @@
 "use server";
 
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, ne, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { after } from "next/server";
 import { redirect } from "next/navigation";
@@ -11,6 +11,7 @@ import {
   customerGroups,
   customers,
   giftCards,
+  hotelTasks,
   guestRequestMessages,
   guestRequests,
   partners,
@@ -34,6 +35,7 @@ import { notifyGuest, sendBulkText, sendText } from "@/lib/sms";
 import { runDueJobs, runBirthdayJob, sendCampaign } from "@/lib/jobs";
 import { activateGiftCard, genGiftCode, voidGiftCard } from "@/lib/giftcards";
 import { newCredentials } from "@/lib/partner-api";
+import { createHousekeepingTask, notifyReceptionShiftForReservation } from "@/lib/hotel-operations";
 import { addDaysISO, diffDays, genReservationCode, genTrackingCode, toEnDigits, todayISO } from "@/lib/utils";
 
 type Res = { ok: boolean; message: string };
@@ -132,6 +134,8 @@ export async function createAdminReservation(_p: HState, fd: FormData): Promise<
     );
   await syncReservationVouchers(created);
   if (created.phone) await linkReservationCustomer(created).catch(() => null);
+  after(() => notifyReceptionShiftForReservation(created));
+  if (checkInNow && created.checkedInAt) after(() => notifyReceptionShiftForReservation(created, "checkin"));
   if (status === "confirmed" && created.phone && fd.get("sendSms") === "on") after(() => notifyGuest(created, "guest_confirmed").then(() => undefined));
   revalidatePath("/admin", "layout");
   redirect(`/admin/reservations/${created.id}?created=1`);
@@ -142,6 +146,7 @@ export async function checkInReservation(id: number): Promise<Res> {
   const [r] = await db.select().from(reservations).where(eq(reservations.id, id));
   if (!r || r.status !== "confirmed") return { ok: false, message: "فقط رزرو قطعی قابل پذیرش است." };
   await db.update(reservations).set({ checkedInAt: new Date(), checkedOutAt: null }).where(eq(reservations.id, id));
+  after(() => notifyReceptionShiftForReservation(r, "checkin"));
   revalidatePath("/admin", "layout");
   return { ok: true, message: `${r.guestName} پذیرش (Check-in) شد.` };
 }
@@ -151,7 +156,11 @@ export async function checkOutReservation(id: number): Promise<Res> {
   const [r] = await db.select().from(reservations).where(eq(reservations.id, id));
   if (!r || !r.checkedInAt) return { ok: false, message: "ابتدا پذیرش (Check-in) را ثبت کنید." };
   await db.update(reservations).set({ checkedOutAt: new Date() }).where(eq(reservations.id, id));
-  if (r.roomId) await db.update(rooms).set({ housekeeping: "dirty" }).where(eq(rooms.id, r.roomId));
+  if (r.roomId) {
+    const [room] = await db.select().from(rooms).where(eq(rooms.id, r.roomId));
+    const [changed] = await db.update(rooms).set({ housekeeping: "dirty" }).where(and(eq(rooms.id, r.roomId), ne(rooms.housekeeping, "dirty"))).returning({ id: rooms.id });
+    if (room && changed) after(() => createHousekeepingTask({ roomId: room.id, roomName: room.name, roomNumber: room.roomNumber, reservationId: r.id, sourceKey: `housekeeping:checkout:${r.id}` }));
+  }
   revalidatePath("/admin", "layout");
   return { ok: true, message: `${r.guestName} تخلیه (Check-out) شد و اتاق برای نظافت علامت خورد.` };
 }
@@ -166,8 +175,17 @@ export async function undoCheck(id: number, which: "in" | "out"): Promise<Res> {
 export async function setHousekeeping(roomId: number, status: "clean" | "dirty" | "inspected" | "out_of_order"): Promise<Res> {
   await requireAdmin();
   if (!["clean", "dirty", "inspected", "out_of_order"].includes(status)) return { ok: false, message: "وضعیت نامعتبر" };
-  await db.update(rooms).set({ housekeeping: status }).where(eq(rooms.id, roomId));
+  const [room] = await db.select().from(rooms).where(eq(rooms.id, roomId));
+  if (!room) return { ok: false, message: "اتاق یافت نشد." };
+  const [changed] = await db.update(rooms).set({ housekeeping: status }).where(status === "dirty" ? and(eq(rooms.id, roomId), ne(rooms.housekeeping, "dirty")) : eq(rooms.id, roomId)).returning({ id: rooms.id });
+  if (status === "dirty" && changed) {
+    after(() => createHousekeepingTask({ roomId: room.id, roomName: room.name, roomNumber: room.roomNumber, sourceKey: `housekeeping:room:${room.id}:${Date.now()}` }));
+  }
+  if (status === "clean" || status === "inspected") {
+    await db.update(hotelTasks).set({ status: "done", completedAt: new Date() }).where(and(eq(hotelTasks.roomId, roomId), eq(hotelTasks.taskType, "housekeeping"), inArray(hotelTasks.status, ["open", "in_progress"])));
+  }
   revalidatePath("/admin/front-desk");
+  revalidatePath("/admin/operations");
   return { ok: true, message: "وضعیت اتاق به‌روز شد." };
 }
 

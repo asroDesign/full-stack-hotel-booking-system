@@ -21,7 +21,7 @@ import { faNum, formatJalali, isoToJalali } from "./utils";
  */
 
 export type SmsEvent = "admin_reservation" | "guest_request" | "guest_confirmed" | "guest_rejected" | "test";
-export type TextEvent = "campaign" | "birthday" | "manual" | "review_invite" | "table" | "giftcard" | "guest_reply";
+export type TextEvent = "campaign" | "birthday" | "manual" | "review_invite" | "table" | "giftcard" | "guest_reply" | "staff_task" | "staff_reservation";
 
 export type SmsParams = {
   code?: string;
@@ -48,6 +48,8 @@ const TEXT_LABEL: Record<TextEvent, string> = {
   table: "رزرو میز رستوران",
   giftcard: "کارت هدیه",
   guest_reply: "پاسخ به مهمان ساکن",
+  staff_task: "هماهنگی کار شیفت",
+  staff_reservation: "اطلاع رزرو به پذیرش شیفت",
 };
 export const smsEventLabel: Record<string, string> = { ...EVENT_LABEL, ...TEXT_LABEL };
 

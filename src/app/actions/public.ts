@@ -24,6 +24,7 @@ import { startReservationPayment } from "@/lib/payment-service";
 import type { PaymentGatewayId } from "@/db/schema";
 import type { GatewayRedirect } from "@/lib/payment-providers";
 import { grantPublicAccess, hasPublicAccess } from "@/lib/public-access";
+import { notifyReceptionShiftForReservation } from "@/lib/hotel-operations";
 
 export type FormState = { ok?: boolean; error?: string; message?: string; redirect?: GatewayRedirect } | null;
 
@@ -176,6 +177,7 @@ export async function createReservation(_prev: FormState, fd: FormData): Promise
     await linkReservationCustomer(created).catch(() => null);
     await notifyAdmins(created, "request");
     await notifyGuest(created, "guest_request");
+    await notifyReceptionShiftForReservation(created);
   });
 
   revalidatePath("/admin");

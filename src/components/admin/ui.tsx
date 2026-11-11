@@ -45,6 +45,7 @@ import {
   Crown,
   Handshake,
   PackageCheck,
+  ClipboardList,
 } from "lucide-react";
 import { logout } from "@/app/actions/admin";
 import { IMAGE_ACCEPT, isImageFile, uploadFile } from "./media-inputs";
@@ -64,6 +65,8 @@ const navSections: { title: string; items: NavItem[] }[] = [
       { href: "/admin/table-bookings", label: "رزرو میز رستوران", Icon: UtensilsCrossed, badge: "tables" },
       { href: "/admin/rooms", label: "اتاق‌ها", Icon: BedDouble },
       { href: "/admin/pricing", label: "قیمت‌گذاری و تقویم قیمت", Icon: CalendarDays },
+      { href: "/admin/staff", label: "نیروی انسانی و حقوق", Icon: Users },
+      { href: "/admin/operations", label: "هماهنگی شیفت و کارها", Icon: ClipboardList },
     ],
   },
   {
