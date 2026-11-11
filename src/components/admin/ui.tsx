@@ -383,7 +383,7 @@ export function ImageListInput({ name, initial, single = false }: { name: string
   );
 }
 
-export function Modal({ open, onClose, title, children }: { open: boolean; onClose: () => void; title: string; children: ReactNode }) {
+export function Modal({ open, onClose, title, children, wide = false }: { open: boolean; onClose: () => void; title: string; children: ReactNode; wide?: boolean }) {
   useEffect(() => {
     if (!open) return;
     const k = (e: KeyboardEvent) => e.key === "Escape" && onClose();
@@ -393,7 +393,7 @@ export function Modal({ open, onClose, title, children }: { open: boolean; onClo
   if (!open) return null;
   return (
     <div className="modal modal-open modal-bottom z-[80] sm:modal-middle" role="dialog">
-      <div className="modal-box max-h-[92vh] max-w-xl">
+      <div className={`modal-box max-h-[92vh] ${wide ? "max-w-5xl" : "max-w-xl"}`}>
         <div className="mb-5 flex items-center justify-between">
           <h3 className="text-lg font-extrabold">{title}</h3>
           <button type="button" onClick={onClose} className="btn btn-circle btn-ghost btn-sm"><X className="h-4 w-4" /></button>

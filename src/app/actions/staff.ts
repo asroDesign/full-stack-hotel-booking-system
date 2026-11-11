@@ -23,6 +23,8 @@ const fail = (message: string, page = "/admin/staff"): never => {
   const [path, hash] = page.split("#", 2);
   redirect(`${path}?error=${encodeURIComponent(message)}${hash ? `#${hash}` : ""}`);
 };
+class StaffActionError extends Error {}
+
 const validDate = (value: string) => {
   if (!iso.test(value)) return false;
   const date = new Date(`${value}T00:00:00Z`);
@@ -218,14 +220,76 @@ export async function updatePayrollEntry(fd: FormData) {
 export async function markPayrollPaid(fd: FormData) {
   const admin = await requireAdmin();
   const id = num(fd.get("id"));
-  const [entry] = await db.select().from(hotelPayrollEntries).where(eq(hotelPayrollEntries.id, id));
-  if (!entry) fail("ردیف حقوق پیدا نشد.");
-  if (entry.paymentStatus === "paid") fail("این ردیف حقوق قبلاً پرداخت شده است.");
-  const [period] = await db.select().from(hotelPayrollPeriods).where(eq(hotelPayrollPeriods.id, entry.periodId));
-  if (!period || period.status === "draft") fail("ابتدا دوره حقوق را تایید کنید.");
-  await db.update(hotelPayrollEntries).set({ paymentStatus: "paid", paidAt: new Date(), paidBy: admin.id, paymentRef: cleanText(fd.get("paymentRef"), 100) }).where(eq(hotelPayrollEntries.id, id));
-  const unpaid = await db.select({ id: hotelPayrollEntries.id }).from(hotelPayrollEntries).where(and(eq(hotelPayrollEntries.periodId, entry.periodId), eq(hotelPayrollEntries.paymentStatus, "unpaid")));
-  if (!unpaid.length) await db.update(hotelPayrollPeriods).set({ status: "paid" }).where(eq(hotelPayrollPeriods.id, entry.periodId));
+  const moneyCode = String(fd.get("moneyCode") ?? "");
+  const paymentRef = cleanText(fd.get("paymentRef"), 100);
+  if (!id || !["110101", "110201"].includes(moneyCode)) fail("حساب پرداخت حقوق معتبر نیست.", "/admin/staff#payroll");
+  await ensureAccounts();
+  try {
+    await db.transaction(async (tx) => {
+    const [entry] = await tx.select().from(hotelPayrollEntries).where(eq(hotelPayrollEntries.id, id)).for("update");
+    if (!entry) throw new StaffActionError("ردیف حقوق پیدا نشد.");
+    if (entry.paymentStatus === "paid") throw new StaffActionError("این ردیف حقوق قبلاً پرداخت شده است.");
+    const [period] = await tx.select().from(hotelPayrollPeriods).where(eq(hotelPayrollPeriods.id, entry.periodId)).for("update");
+    if (!period || period.status === "draft") throw new StaffActionError("ابتدا دوره حقوق را تایید کنید.");
+    const sourceType = `salary-payment:${period.id}:${entry.id}`;
+    const [duplicate] = await tx.select({ id: journalEntries.id }).from(journalEntries).where(and(eq(journalEntries.source, "payroll"), eq(journalEntries.sourceType, sourceType)));
+    if (duplicate) throw new StaffActionError("سند پرداخت این ردیف قبلاً ثبت شده است.");
+    if (entry.netToman > 0) {
+      const [payable] = await tx.select().from(accounts).where(eq(accounts.code, "210102"));
+      const [moneyAccount] = await tx.select().from(accounts).where(eq(accounts.code, moneyCode));
+      if (!payable?.isActive || payable.level !== 3 || !moneyAccount?.isActive || moneyAccount.level !== 3 || moneyAccount.type !== "asset") throw new StaffActionError("حساب حقوق پرداختنی یا صندوق/بانک معتبر و فعال نیست.");
+      const staffName = String(entry.staffSnapshot.name ?? "کارمند");
+      const [document] = await tx.insert(journalEntries).values({ date: period.dateTo, description: `پرداخت خالص حقوق ${staffName} — ${period.title}`, source: "payroll", sourceType, createdBy: String(admin.id) }).returning({ id: journalEntries.id });
+      const reference = paymentRef ? `شناسه پرداخت: ${paymentRef}` : "";
+      await tx.insert(journalLines).values([
+        { entryId: document.id, accountId: payable.id, debit: entry.netToman, credit: 0, description: `تسویه حقوق ${staffName}` },
+        { entryId: document.id, accountId: moneyAccount.id, debit: 0, credit: entry.netToman, description: reference },
+      ]);
+    }
+    await tx.update(hotelPayrollEntries).set({ paymentStatus: "paid", paidAt: new Date(), paidBy: admin.id, paymentRef }).where(eq(hotelPayrollEntries.id, id));
+    const unpaid = await tx.select({ id: hotelPayrollEntries.id }).from(hotelPayrollEntries).where(and(eq(hotelPayrollEntries.periodId, entry.periodId), eq(hotelPayrollEntries.paymentStatus, "unpaid")));
+    if (unpaid.length === 0) await tx.update(hotelPayrollPeriods).set({ status: "paid" }).where(eq(hotelPayrollPeriods.id, entry.periodId));
+    });
+  } catch (error) {
+    if (error instanceof StaffActionError) fail(error.message, "/admin/staff#payroll");
+    throw error;
+  }
+  revalidatePath("/admin/accounting", "layout");
+  revalidatePath("/admin/staff");
+  redirect("/admin/staff#payroll");
+}
+
+export async function markPayrollInsurancePaid(fd: FormData) {
+  const admin = await requireAdmin();
+  const periodId = num(fd.get("periodId"));
+  const moneyCode = String(fd.get("moneyCode") ?? "");
+  const paymentRef = cleanText(fd.get("paymentRef"), 100);
+  if (!periodId || !["110101", "110201"].includes(moneyCode)) fail("حساب پرداخت بیمه معتبر نیست.", "/admin/staff#payroll");
+  await ensureAccounts();
+  try {
+    await db.transaction(async (tx) => {
+    const [period] = await tx.select().from(hotelPayrollPeriods).where(eq(hotelPayrollPeriods.id, periodId)).for("update");
+    if (!period || period.status === "draft") throw new StaffActionError("ابتدا دوره حقوق را تایید کنید.");
+    const sourceType = `insurance-payment:${period.id}`;
+    const [duplicate] = await tx.select({ id: journalEntries.id }).from(journalEntries).where(and(eq(journalEntries.source, "payroll"), eq(journalEntries.sourceType, sourceType)));
+    if (duplicate) throw new StaffActionError("سند تسویه بیمه این دوره قبلاً ثبت شده است.");
+    const rows = await tx.select().from(hotelPayrollEntries).where(eq(hotelPayrollEntries.periodId, period.id)).for("update");
+    const amount = rows.reduce((sum, row) => sum + row.employeeInsuranceToman + row.employerInsuranceToman, 0);
+    if (amount <= 0) throw new StaffActionError("برای این دوره مبلغ بیمه‌ای جهت تسویه ثبت نشده است.");
+    const [payable] = await tx.select().from(accounts).where(eq(accounts.code, "210103"));
+    const [moneyAccount] = await tx.select().from(accounts).where(eq(accounts.code, moneyCode));
+    if (!payable?.isActive || payable.level !== 3 || !moneyAccount?.isActive || moneyAccount.level !== 3 || moneyAccount.type !== "asset") throw new StaffActionError("حساب بیمه پرداختنی یا صندوق/بانک معتبر و فعال نیست.");
+    const [document] = await tx.insert(journalEntries).values({ date: period.dateTo, description: `تسویه حق بیمه حقوق — ${period.title}`, source: "payroll", sourceType, createdBy: String(admin.id) }).returning({ id: journalEntries.id });
+    await tx.insert(journalLines).values([
+      { entryId: document.id, accountId: payable.id, debit: amount, credit: 0, description: `بیمه سهم کارکنان و کارفرما — ${period.title}` },
+      { entryId: document.id, accountId: moneyAccount.id, debit: 0, credit: amount, description: paymentRef ? `شناسه پرداخت: ${paymentRef}` : "پرداخت حق بیمه" },
+    ]);
+    });
+  } catch (error) {
+    if (error instanceof StaffActionError) fail(error.message, "/admin/staff#payroll");
+    throw error;
+  }
+  revalidatePath("/admin/accounting", "layout");
   revalidatePath("/admin/staff");
   redirect("/admin/staff#payroll");
 }
@@ -234,11 +298,12 @@ export async function approvePayrollPeriod(fd: FormData) {
   const admin = await requireAdmin();
   const id = num(fd.get("id"));
   await ensureAccounts();
-  await db.transaction(async (tx) => {
+  try {
+    await db.transaction(async (tx) => {
     const [period] = await tx.select().from(hotelPayrollPeriods).where(eq(hotelPayrollPeriods.id, id)).for("update");
-    if (!period || period.status !== "draft") throw new Error("این لیست قبلاً تأیید شده یا موجود نیست.");
+    if (!period || period.status !== "draft") throw new StaffActionError("این لیست قبلاً تأیید شده یا موجود نیست.");
     const rows = await tx.select().from(hotelPayrollEntries).where(eq(hotelPayrollEntries.periodId, id)).for("update");
-    if (!rows.length) throw new Error("لیست حقوق خالی است.");
+    if (!rows.length) throw new StaffActionError("لیست حقوق خالی است.");
     const totals = rows.reduce((sum, row) => ({ gross: sum.gross + row.grossToman, net: sum.net + row.netToman, employee: sum.employee + row.employeeInsuranceToman, employer: sum.employer + row.employerInsuranceToman, tax: sum.tax + row.incomeTaxToman, penalty: sum.penalty + row.penaltyToman }), { gross: 0, net: 0, employee: 0, employer: 0, tax: 0, penalty: 0 });
     const definitions = [
       ["510101", "حقوق کارکنان", "expense", "5101"], ["510102", "بیمه سهم کارفرما", "expense", "5101"],
@@ -248,10 +313,10 @@ export async function approvePayrollPeriod(fd: FormData) {
     const ids = new Map<string, number>();
     for (const [code, name, type, parentCode] of definitions) {
       const [parent] = await tx.select().from(accounts).where(eq(accounts.code, parentCode));
-      if (!parent) throw new Error("حساب والد حقوق یافت نشد: " + parentCode);
+      if (!parent) throw new StaffActionError("حساب والد حقوق یافت نشد: " + parentCode);
       await tx.insert(accounts).values({ code, name, type, level: 3, parentId: parent.id, isSystem: true }).onConflictDoNothing();
       const [account] = await tx.select().from(accounts).where(eq(accounts.code, code));
-      if (!account.isActive || account.level !== 3 || account.type !== type) throw new Error("حساب حقوق نامعتبر یا غیرفعال است: " + code);
+      if (!account.isActive || account.level !== 3 || account.type !== type) throw new StaffActionError("حساب حقوق نامعتبر یا غیرفعال است: " + code);
       ids.set(code, account.id);
     }
     const lines = [
@@ -259,11 +324,15 @@ export async function approvePayrollPeriod(fd: FormData) {
       { code: "210102", debit: 0, credit: totals.net }, { code: "210103", debit: 0, credit: totals.employee + totals.employer },
       { code: "210202", debit: 0, credit: totals.tax }, { code: "210104", debit: 0, credit: totals.penalty },
     ].filter((line) => line.debit || line.credit);
-    if (lines.length < 2) throw new Error("مبلغی برای ثبت سند حقوق وجود ندارد.");
+    if (lines.length < 2) throw new StaffActionError("مبلغی برای ثبت سند حقوق وجود ندارد.");
     const [document] = await tx.insert(journalEntries).values({ date: period.dateTo, description: "تعهد حقوق، بیمه و مالیات — " + period.title, source: "payroll", sourceType: "accrual:" + id, createdBy: String(admin.id) }).returning();
     await tx.insert(journalLines).values(lines.map(({ code, ...line }) => ({ ...line, accountId: ids.get(code)!, entryId: document.id, description: period.title })));
     await tx.update(hotelPayrollPeriods).set({ status: "approved", approvedBy: admin.id, approvedAt: new Date(), approvalNote: cleanText(fd.get("note"), 300) }).where(eq(hotelPayrollPeriods.id, id));
-  });
+    });
+  } catch (error) {
+    if (error instanceof StaffActionError) fail(error.message, "/admin/staff#payroll");
+    throw error;
+  }
   revalidatePath("/admin/accounting");
   revalidatePath("/admin/staff");
   redirect("/admin/staff#payroll");

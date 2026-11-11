@@ -1,7 +1,7 @@
 import { asc, desc, eq } from "drizzle-orm";
 import { toJalaali } from "jalaali-js";
 import { db } from "@/db";
-import { admins, hotelAttendance, hotelAttendanceEvents, hotelLeaveRequests, hotelPayrollAdjustments, hotelPayrollEntries, hotelPayrollLeaves, hotelPayrollPeriods, hotelPayrollPolicies, hotelShiftAssignments, hotelShiftSwapRequests, hotelShiftTemplates, hotelShifts, hotelStaff } from "@/db/schema";
+import { admins, hotelAttendance, hotelAttendanceEvents, hotelLeaveRequests, hotelPayrollAdjustments, hotelPayrollEntries, hotelPayrollLeaves, hotelPayrollPeriods, hotelPayrollPolicies, hotelShiftAssignments, hotelShiftSwapRequests, hotelShiftTemplates, hotelShifts, hotelStaff, journalEntries } from "@/db/schema";
 import { PageHeader } from "@/components/admin/ui";
 import { StaffAdmin } from "@/components/admin/staff-admin";
 import { hotelBusinessDate } from "@/lib/hotel-operations";
@@ -14,12 +14,13 @@ export default async function StaffPage({ searchParams }: { searchParams: Promis
   const params = await searchParams;
   const requestedDay = params.day && /^\d{4}-\d{2}-\d{2}$/.test(params.day) ? params.day : "";
   const parsedDay = requestedDay ? new Date(`${requestedDay}T12:00:00Z`) : null;
-  const day = parsedDay && parsedDay.toISOString().slice(0, 10) === requestedDay ? requestedDay : hotelBusinessDate();
+  const businessToday = hotelBusinessDate();
+  const day = parsedDay && parsedDay.toISOString().slice(0, 10) === requestedDay ? requestedDay : businessToday;
   const parts = day.split("-").map(Number) as [number, number, number];
   const { jy: currentJalaliYear } = toJalaali(parts[0], parts[1], parts[2]);
   const requestedPolicyYear = Number(params.policyYear);
   const policyYear = Number.isInteger(requestedPolicyYear) && requestedPolicyYear >= 1300 && requestedPolicyYear <= 1600 ? requestedPolicyYear : currentJalaliYear;
-  const [siteSettings, staff, shifts, schedule, payroll, templates, leaveRequests, swaps, adjustments, payrollLeaves, policy, attendanceEvents] = await Promise.all([
+  const [siteSettings, staff, shifts, schedule, payroll, templates, leaveRequests, swaps, adjustments, payrollLeaves, policy, attendanceEvents, payrollDocuments] = await Promise.all([
     getSettings(),
     db.select().from(hotelStaff).orderBy(asc(hotelStaff.fullName)),
     db.select().from(hotelShifts).orderBy(asc(hotelShifts.startTime)),
@@ -54,12 +55,17 @@ export default async function StaffPage({ searchParams }: { searchParams: Promis
       .innerJoin(hotelShiftAssignments, eq(hotelAttendance.assignmentId, hotelShiftAssignments.id))
       .innerJoin(admins, eq(hotelAttendanceEvents.recordedBy, admins.id))
       .where(eq(hotelShiftAssignments.workDate, day)).orderBy(desc(hotelAttendanceEvents.createdAt)).limit(200),
+    db.select({ sourceType: journalEntries.sourceType }).from(journalEntries).where(eq(journalEntries.source, "payroll")),
   ]);
+  const insuranceSettledPeriods = payrollDocuments.flatMap(({ sourceType }) => {
+    const match = /^insurance-payment:(\d+)$/.exec(sourceType);
+    return match ? [Number(match[1])] : [];
+  });
   return (
     <div className="space-y-2">
       <PageHeader title="نیروی انسانی، شیفت و حقوق" desc="تعریف نیرو و برنامه کاری، ثبت حضور و غیاب و آماده‌سازی و تسویه حقوق" />
       {params.error && <div role="alert" className="alert alert-error mb-4">{params.error}</div>}
-      <StaffAdmin staff={staff} shifts={shifts} schedule={schedule} payroll={payroll} day={day} currentJalaliYear={currentJalaliYear} templates={templates} leaveRequests={leaveRequests} swaps={swaps} adjustments={adjustments} payrollLeaves={payrollLeaves} policy={policy ?? defaultPayrollPolicy(policyYear)} attendanceEvents={attendanceEvents} hotelName={siteSettings.hotelName} />
+      <StaffAdmin staff={staff} shifts={shifts} schedule={schedule} payroll={payroll} day={day} currentJalaliYear={currentJalaliYear} templates={templates} leaveRequests={leaveRequests} swaps={swaps} adjustments={adjustments} payrollLeaves={payrollLeaves} policy={policy ?? defaultPayrollPolicy(policyYear)} attendanceEvents={attendanceEvents} hotelName={siteSettings.hotelName} businessToday={businessToday} insuranceSettledPeriods={insuranceSettledPeriods} />
     </div>
   );
 }

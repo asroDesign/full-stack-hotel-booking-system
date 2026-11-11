@@ -7,7 +7,7 @@ import { accounts, journalEntries, journalLines, type AccountType } from "@/db/s
 import { requireAdmin } from "@/lib/auth";
 import { cleanText } from "@/lib/security";
 import { createVoucher, ensureAccounts } from "@/lib/accounting";
-import { toEnDigits } from "@/lib/utils";
+import { toEnDigits, todayISO } from "@/lib/utils";
 
 type Res = { ok: boolean; message: string; id?: number };
 const ISO = /^\d{4}-\d{2}-\d{2}$/;
@@ -125,8 +125,34 @@ export async function deleteVoucher(id: number): Promise<Res> {
   await requireAdmin();
   const [e] = await db.select().from(journalEntries).where(eq(journalEntries.id, id));
   if (!e) return { ok: false, message: "سند یافت نشد." };
-  if (e.source === "reservation") return { ok: false, message: "اسناد خودکار رزرو با تغییر وضعیت رزرو مدیریت می‌شوند." };
-  await db.delete(journalEntries).where(and(eq(journalEntries.id, id)));
+  if (e.source === "reservation" || e.source === "payroll" || e.sourceType.startsWith("reversal:")) return { ok: false, message: "اسناد خودکار یا سند برگشتی از این مسیر حذف نمی‌شوند." };
+  const [reversal] = await db.select({ id: journalEntries.id }).from(journalEntries).where(and(eq(journalEntries.source, "manual"), eq(journalEntries.sourceType, `reversal:${id}`)));
+  if (reversal) return { ok: false, message: "برای این سند برگشت ثبت شده است؛ حذف آن مجاز نیست." };
+  await db.delete(journalEntries).where(eq(journalEntries.id, id));
   revalidatePath("/admin/accounting", "layout");
   return { ok: true, message: `سند ${id} حذف شد.` };
+}
+
+
+export async function reverseVoucher(id: number): Promise<Res> {
+  const admin = await requireAdmin();
+  const voucherId = Math.trunc(Number(id));
+  if (!Number.isSafeInteger(voucherId) || voucherId <= 0) return { ok: false, message: "شماره سند معتبر نیست." };
+  const result = await db.transaction(async (tx) => {
+    const [entry] = await tx.select().from(journalEntries).where(eq(journalEntries.id, voucherId)).for("update");
+    if (!entry) return { ok: false as const, message: "سند یافت نشد." };
+    if (entry.source === "reservation" || entry.source === "payroll" || entry.sourceType.startsWith("reversal:")) return { ok: false as const, message: "این سند خودکار است و از این مسیر برگشت داده نمی‌شود." };
+    const sourceType = `reversal:${entry.id}`;
+    const [existing] = await tx.select({ id: journalEntries.id }).from(journalEntries).where(and(eq(journalEntries.source, "manual"), eq(journalEntries.sourceType, sourceType)));
+    if (existing) return { ok: false as const, message: "برای این سند قبلاً برگشت ثبت شده است." };
+    const lines = await tx.select().from(journalLines).where(eq(journalLines.entryId, entry.id)).orderBy(journalLines.id);
+    const debit = lines.reduce((sum, line) => sum + Number(line.debit), 0);
+    const credit = lines.reduce((sum, line) => sum + Number(line.credit), 0);
+    if (lines.length < 2 || lines.some((line) => line.debit > 0 && line.credit > 0) || debit !== credit || debit <= 0) return { ok: false as const, message: "ردیف‌های سند برای برگشت معتبر نیستند یا سند تراز نیست." };
+    const [reversal] = await tx.insert(journalEntries).values({ date: todayISO(), description: `برگشت سند شماره ${entry.id} — ${entry.description}`, source: "manual", sourceType, createdBy: admin.name }).returning({ id: journalEntries.id });
+    await tx.insert(journalLines).values(lines.map((line) => ({ entryId: reversal.id, accountId: line.accountId, debit: line.credit, credit: line.debit, description: line.description ? `برگشت: ${line.description}` : `برگشت سند ${entry.id}` })));
+    return { ok: true as const, id: reversal.id, message: `سند برگشت شماره ${reversal.id} ثبت شد.` };
+  });
+  if (result.ok) revalidatePath("/admin/accounting", "layout");
+  return result;
 }

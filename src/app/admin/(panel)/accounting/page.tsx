@@ -11,6 +11,7 @@ const srcLabel: Record<string, [string, string]> = {
   income: ["درآمد", "badge-success"],
   expense: ["هزینه", "badge-error"],
   manual: ["دستی", "badge-ghost"],
+  payroll: ["حقوق و بیمه", "badge-warning"],
 };
 
 export default async function AccountingDashboard() {

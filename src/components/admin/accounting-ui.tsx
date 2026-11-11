@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
 import { Download, Printer, Plus, Trash2, Pencil, FolderTree, ArrowDownCircle, ArrowUpCircle, FileText, Scale } from "lucide-react";
-import { deleteAccount, deleteVoucher, saveAccount, saveManualVoucher, saveQuickEntry } from "@/app/actions/accounting";
+import { deleteAccount, deleteVoucher, reverseVoucher, saveAccount, saveManualVoucher, saveQuickEntry } from "@/app/actions/accounting";
 import { JalaliDatePicker } from "@/components/jalali-date-picker";
 import { Modal, Toast } from "./ui";
 import { cn, faNum, formatPrice, isoToJalali, jalaliToISO, todayISO } from "@/lib/utils";
@@ -18,6 +18,8 @@ const tabs = [
   { href: "/admin/accounting/ledger", label: "دفتر کل / معین" },
   { href: "/admin/accounting/trial-balance", label: "تراز آزمایشی" },
   { href: "/admin/accounting/profit-loss", label: "سود و زیان" },
+  { href: "/admin/accounting/balance-sheet", label: "ترازنامه" },
+  { href: "/admin/accounting/receivables-payables", label: "دریافتنی / پرداختنی" },
   { href: "/admin/accounting/accounts", label: "سرفصل حساب‌ها" },
 ];
 
@@ -66,6 +68,40 @@ export function ReportToolbar({ from, to, exportHref, children }: { from: string
       </div>
     </div>
   );
+}
+
+
+export function JournalFilters({ source, query }: { source: string; query: string }) {
+  const router = useRouter();
+  const search = useSearchParams();
+  return (
+    <form className="card card-border mb-4 bg-base-100 shadow-sm print:hidden" onSubmit={(event) => {
+      event.preventDefault();
+      const data = new FormData(event.currentTarget);
+      const params = new URLSearchParams(search.toString());
+      const nextSource = String(data.get("source") ?? "all");
+      const nextQuery = String(data.get("q") ?? "").trim();
+      if (nextSource === "all") params.delete("source"); else params.set("source", nextSource);
+      if (nextQuery) params.set("q", nextQuery); else params.delete("q");
+      router.push(`/admin/accounting/journal?${params.toString()}`);
+    }}>
+      <div className="card-body flex-row flex-wrap items-end gap-3 p-4">
+        <label className="form-control"><span className="field-label">نوع سند</span><select className="select select-sm" name="source" defaultValue={source}><option value="all">همه اسناد</option><option value="reservation">رزرو</option><option value="income">درآمد</option><option value="expense">هزینه</option><option value="manual">دستی</option><option value="payroll">حقوق و بیمه</option></select></label>
+        <label className="form-control min-w-60 flex-1"><span className="field-label">جست‌وجو در شرح</span><input className="input input-sm" name="q" defaultValue={query} maxLength={60} placeholder="شماره سند یا شرح سند" /></label>
+        <button className="btn btn-sm btn-primary">اعمال فیلتر</button>
+      </div>
+    </form>
+  );
+}
+
+export function AsOfToolbar({ date, children }: { date: string; children?: React.ReactNode }) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const search = useSearchParams();
+  return <div className="card card-border mb-4 bg-base-100 shadow-sm print:hidden"><div className="card-body flex-row flex-wrap items-end gap-3 p-4">
+    <div className="w-48"><JalaliDatePicker name="to" label="مانده تا تاریخ" value={date} onChange={(value) => { const params = new URLSearchParams(search.toString()); params.set("to", value); router.push(`${pathname}?${params.toString()}`); }} /></div>
+    {children}<div className="flex-1" /><button type="button" onClick={() => window.print()} className="btn btn-sm"><Printer className="h-4 w-4" /> چاپ / PDF</button>
+  </div></div>;
 }
 
 export function LevelSelect({ level }: { level: number }) {
@@ -256,6 +292,17 @@ export function ManualVoucherForm({ accounts }: { accounts: AccRow[] }) {
       <Toast message={toast?.msg ?? null} tone={toast?.tone} onDone={() => setToast(null)} />
     </div>
   );
+}
+
+export function PrintButton({ label = "چاپ سند" }: { label?: string }) {
+  return <button type="button" onClick={() => window.print()} className="btn btn-sm btn-primary"><Printer className="h-4 w-4" />{label}</button>;
+}
+
+export function ReverseVoucherButton({ id }: { id: number }) {
+  const router = useRouter();
+  const [pending, start] = useTransition();
+  const [toast, setToast] = useState<{ msg: string; tone: "success" | "error" } | null>(null);
+  return <><button type="button" disabled={pending} onClick={() => { if (confirm(`برای سند ${id} سند برگشتی ثبت شود؟`)) start(async () => { const result = await reverseVoucher(id); setToast({ msg: result.message, tone: result.ok ? "success" : "error" }); if (result.ok) router.refresh(); }); }} className="btn btn-sm btn-outline btn-warning">ثبت برگشت سند</button><Toast message={toast?.msg ?? null} tone={toast?.tone} onDone={() => setToast(null)} /></>;
 }
 
 export function DeleteVoucherButton({ id }: { id: number }) {

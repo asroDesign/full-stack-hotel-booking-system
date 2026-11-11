@@ -3,9 +3,10 @@
 import { useEffect, useState } from "react";
 import { toJalaali } from "jalaali-js";
 import { JalaliDatePicker } from "@/components/jalali-date-picker";
+import { Modal } from "@/components/admin/ui";
 import { faNum, formatJalali } from "@/lib/utils";
 import type { PayrollPolicyCore, TaxBand } from "@/lib/hotel-payroll-core";
-import { applyShiftTemplate, approvePayrollPeriod, assignShift, createLeaveRequest, createPayrollAdjustment, createPayrollLeave, createShiftSwapRequest, decideLeaveRequest, decidePayrollAdjustment, decidePayrollLeave, decideShiftSwap, generateJalaliPayroll, markPayrollPaid, punchAttendance, removeShiftAssignment, savePayrollPolicy, saveShift, saveShiftTemplate, saveStaff, setAttendanceStatus, toggleShiftTemplate, updatePayrollEntry } from "@/app/actions/staff";
+import { applyShiftTemplate, approvePayrollPeriod, assignShift, createLeaveRequest, createPayrollAdjustment, createPayrollLeave, createShiftSwapRequest, decideLeaveRequest, decidePayrollAdjustment, decidePayrollLeave, decideShiftSwap, generateJalaliPayroll, markPayrollInsurancePaid, markPayrollPaid, punchAttendance, removeShiftAssignment, savePayrollPolicy, saveShift, saveShiftTemplate, saveStaff, setAttendanceStatus, toggleShiftTemplate, updatePayrollEntry } from "@/app/actions/staff";
 import type { hotelAttendance, hotelAttendanceEvents, hotelLeaveRequests, hotelPayrollAdjustments, hotelPayrollEntries, hotelPayrollLeaves, hotelPayrollPeriods, hotelShiftAssignments, hotelShiftSwapRequests, hotelShiftTemplates, hotelShifts, hotelStaff } from "@/db/schema";
 
 type Staff = typeof hotelStaff.$inferSelect;
@@ -274,7 +275,7 @@ function PayrollEditor({ row }: { row: Payroll }) {
         <label className="form-control"><span className="field-label">شناسه پرداخت</span><input className="input input-sm" name="paymentRef" defaultValue={row.entry.paymentRef} /></label>
         <button className="btn btn-sm btn-primary md:col-span-5">ثبت اصلاح با دلیل</button>
       </form>}
-      {row.entry.paymentStatus !== "paid" && row.period.status !== "draft" && <form action={markPayrollPaid} className="mt-2 flex flex-wrap items-end gap-2"><input type="hidden" name="id" value={row.entry.id} /><label className="form-control"><span className="field-label">شناسه / شماره پیگیری واریز</span><input className="input input-sm" name="paymentRef" defaultValue={row.entry.paymentRef} maxLength={100} /></label><button className="btn btn-sm btn-success">ثبت پرداخت حقوق</button></form>}
+      {row.entry.paymentStatus !== "paid" && row.period.status !== "draft" && <form action={markPayrollPaid} className="mt-3 grid gap-2 rounded-xl bg-base-200/40 p-3 sm:grid-cols-[1fr_1fr_auto]"><input type="hidden" name="id" value={row.entry.id} /><label className="form-control"><span className="field-label">پرداخت از حساب</span><select className="select select-sm" name="moneyCode" defaultValue="110201"><option value="110201">بانک ملی - حساب جاری</option><option value="110101">صندوق هتل</option></select></label><label className="form-control"><span className="field-label">شناسه / شماره پیگیری واریز</span><input className="input input-sm" name="paymentRef" defaultValue={row.entry.paymentRef} maxLength={100} /></label><button className="btn btn-sm btn-success self-end">ثبت پرداخت و سند تسویه</button></form>}
       {row.entry.paymentStatus === "paid" && <span className="badge badge-success mt-2">پرداخت‌شده</span>}
     </details>
   );
@@ -316,11 +317,14 @@ function InsuranceSection({ staff, payroll, search, setSearch }: { staff: Staff[
   </section>;
 }
 
-export function StaffAdmin({ staff, shifts, schedule, payroll, day, currentJalaliYear, templates, leaveRequests, swaps, adjustments, payrollLeaves, policy, attendanceEvents, hotelName }: { staff: Staff[]; shifts: Shift[]; schedule: Schedule[]; payroll: Payroll[]; day: string; currentJalaliYear: number; templates: Template[]; leaveRequests: Leave[]; swaps: Swap[]; adjustments: Adjustment[]; payrollLeaves: PayrollLeave[]; policy: PayrollPolicyCore; attendanceEvents: AttendanceEvent[]; hotelName: string }) {
+export function StaffAdmin({ staff, shifts, schedule, payroll, day, currentJalaliYear, templates, leaveRequests, swaps, adjustments, payrollLeaves, policy, attendanceEvents, hotelName, businessToday, insuranceSettledPeriods }: { staff: Staff[]; shifts: Shift[]; schedule: Schedule[]; payroll: Payroll[]; day: string; currentJalaliYear: number; templates: Template[]; leaveRequests: Leave[]; swaps: Swap[]; adjustments: Adjustment[]; payrollLeaves: PayrollLeave[]; policy: PayrollPolicyCore; attendanceEvents: AttendanceEvent[]; hotelName: string; businessToday: string; insuranceSettledPeriods: number[] }) {
   const [activeTab, setActiveTab] = useState<"people" | "insurance" | "shifts" | "payroll">("people");
   const [shiftTab, setShiftTab] = useState<"definitions" | "templates" | "schedule" | "swaps">("definitions");
   const [payrollTab, setPayrollTab] = useState<"list" | "extras" | "policy">("list");
   const [scheduleDate, setScheduleDate] = useState(day);
+  const [scheduleSearch, setScheduleSearch] = useState("");
+  const [scheduleStatus, setScheduleStatus] = useState("all");
+  const [editingStaff, setEditingStaff] = useState<Staff | null>(null);
   const [search, setSearch] = useState("");
   const [dutyFilter, setDutyFilter] = useState("all");
   const { jm: currentMonth } = toJalaali(...day.split("-").map(Number) as [number, number, number]);
@@ -331,6 +335,21 @@ export function StaffAdmin({ staff, shifts, schedule, payroll, day, currentJalal
   for (const row of payroll) if (!latestPayroll.has(row.staff.id)) latestPayroll.set(row.staff.id, row);
   const filteredStaff = staff.filter((person) => (dutyFilter === "all" || person.duty === dutyFilter) && `${person.fullName} ${person.jobTitle} ${person.phone}`.toLowerCase().includes(search.trim().toLowerCase()));
   const insuredCount = staff.filter((person) => person.insuranceEnabled && person.insuranceNumber).length;
+  const activeSchedule = schedule.filter((row) => row.assignment.status !== "cancelled");
+  const presentCount = activeSchedule.filter((row) => row.attendance?.status === "present").length;
+  const lateCount = activeSchedule.filter((row) => row.attendance?.status === "late").length;
+  const absentCount = activeSchedule.filter((row) => row.attendance?.status === "absent").length;
+  const pendingCount = activeSchedule.filter((row) => !row.attendance || row.attendance.status === "scheduled").length;
+  const visibleSchedule = schedule.filter((row) => {
+    const query = scheduleSearch.trim().toLowerCase();
+    const status = row.assignment.status === "cancelled" ? "cancelled" : row.attendance?.status ?? "scheduled";
+    return (scheduleStatus === "all" || scheduleStatus === status) && (!query || `${row.staff.fullName} ${row.staff.phone} ${row.shift.name} ${dutyLabel[row.assignment.duty]}`.toLowerCase().includes(query));
+  });
+  const shiftScheduleDate = (offset: number) => {
+    const date = new Date(`${scheduleDate}T12:00:00Z`);
+    date.setUTCDate(date.getUTCDate() + offset);
+    setScheduleDate(date.toISOString().slice(0, 10));
+  };
   const setHash = (hash: string) => window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}#${hash}`);
   const selectMainTab = (id: "people" | "insurance" | "shifts" | "payroll") => {
     setActiveTab(id);
@@ -392,6 +411,7 @@ export function StaffAdmin({ staff, shifts, schedule, payroll, day, currentJalal
     </div>
 
     {activeTab === "people" && <section id="people" role="tabpanel" className="space-y-4">
+      <Modal open={Boolean(editingStaff)} onClose={() => setEditingStaff(null)} title={editingStaff ? `پرونده پرسنلی و بیمهٔ ${editingStaff.fullName}` : "پرونده پرسنلی"} wide>{editingStaff && <StaffForm staff={editingStaff} />}</Modal>
       <div className="flex flex-wrap items-end justify-between gap-3"><div><h3 className="text-xl font-extrabold">فهرست نیروی انسانی</h3><p className="mt-1 text-sm text-base-content/60">اطلاعات شغلی و مالی را باز کنید تا پروندهٔ کامل هر نفر را ویرایش کنید.</p></div><details className="dropdown dropdown-end">
         <summary className="btn btn-primary rounded-xl">افزودن نیروی جدید</summary><div className="dropdown-content z-20 mt-3 w-[min(92vw,900px)] rounded-2xl border border-base-300 bg-base-100 p-4 shadow-2xl"><StaffForm /></div>
       </details></div>
@@ -399,7 +419,7 @@ export function StaffAdmin({ staff, shifts, schedule, payroll, day, currentJalal
       {filteredStaff.length ? <div className="grid gap-3 xl:grid-cols-2">{filteredStaff.map((person) => <article key={person.id} className="rounded-2xl border border-base-300 bg-base-100 p-4 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3"><div className="flex items-center gap-3"><div className="grid h-11 w-11 place-items-center rounded-2xl bg-primary/10 font-black text-primary">{person.fullName.slice(0, 1)}</div><div><div className="font-extrabold">{person.fullName}</div><div className="mt-0.5 text-xs text-base-content/60">{person.jobTitle || dutyLabel[person.duty]} · {person.phone || "شماره همراه ثبت نشده"}</div></div></div><span className={`badge ${person.isActive ? "badge-success" : "badge-ghost"}`}>{person.isActive ? "فعال" : "غیرفعال"}</span></div>
         <div className="mt-4 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4"><div className="rounded-xl bg-base-200/60 p-2"><div className="text-base-content/50">بخش</div><b>{dutyLabel[person.duty]}</b></div><div className="rounded-xl bg-base-200/60 p-2"><div className="text-base-content/50">حقوق پایه</div><b>{money(person.salaryMode === "fixed" ? person.fixedAgreedSalaryToman : person.monthlyBaseSalaryToman || person.monthlySalary)}</b></div><div className="rounded-xl bg-base-200/60 p-2"><div className="text-base-content/50">بیمه</div><b>{person.insuranceEnabled && person.insuranceNumber ? "پرونده کامل" : "نیازمند تکمیل"}</b></div><div className="rounded-xl bg-base-200/60 p-2"><div className="text-base-content/50">شماره بیمه</div><b dir="ltr" className="font-mono">{person.insuranceNumber || "—"}</b></div></div>
-        <details className="mt-3 border-t border-base-200 pt-3"><summary className="cursor-pointer text-sm font-bold text-primary">ویرایش پروندهٔ پرسنلی و بیمه</summary><div className="mt-3"><StaffForm staff={person} /></div></details>
+        <div className="mt-3 border-t border-base-200 pt-3"><button type="button" className="btn btn-sm btn-outline w-full" onClick={() => setEditingStaff(person)}>ویرایش پروندهٔ پرسنلی و بیمه</button></div>
       </article>)}</div> : <div className="rounded-2xl border border-dashed border-base-300 p-10 text-center text-sm text-base-content/60">کارمندی با این فیلتر پیدا نشد.</div>}
     </section>}
 
@@ -416,9 +436,36 @@ export function StaffAdmin({ staff, shifts, schedule, payroll, day, currentJalal
       </div>}
       {shiftTab === "templates" && <TemplateSection staff={staff} shifts={shifts} templates={templates} day={day} />}
       {shiftTab === "schedule" && <section id="schedule" className="space-y-4">
-        <div className="flex flex-wrap items-end justify-between gap-3"><div><h4 className="font-bold">برنامه و حضور روزانه</h4><p className="mt-1 text-xs text-base-content/60">برنامهٔ {formatJalali(day, true)} را بررسی و وضعیت حضور را ثبت کنید.</p></div><form method="get" action="/admin/staff" className="flex flex-wrap items-end gap-2 rounded-2xl border border-base-300 bg-base-100 p-3"><JalaliDatePicker name="day" label="تاریخ برنامه" value={scheduleDate} onChange={setScheduleDate} /><button className="btn btn-sm btn-outline">نمایش تاریخ</button></form></div>
+        <div className="flex flex-wrap items-end justify-between gap-3 rounded-2xl border border-base-300 bg-base-100 p-4 shadow-sm">
+          <div><h4 className="text-lg font-extrabold">برنامه و حضور روزانه</h4><p className="mt-1 text-sm text-base-content/60">برنامهٔ {formatJalali(day, true)} · ثبت ورود، خروج و اصلاح وضعیت حضور</p></div>
+          <form method="get" action="/admin/staff" className="flex flex-wrap items-end gap-2">
+            <button type="button" onClick={() => shiftScheduleDate(-1)} className="btn btn-sm btn-ghost">روز قبل</button>
+            <JalaliDatePicker name="day" label="تاریخ برنامه" value={scheduleDate} onChange={setScheduleDate} />
+            <button type="button" onClick={() => { setScheduleDate(businessToday); }} className="btn btn-sm btn-ghost">امروز</button>
+            <button type="button" onClick={() => shiftScheduleDate(1)} className="btn btn-sm btn-ghost">روز بعد</button>
+            <button className="btn btn-sm btn-primary">نمایش تاریخ</button>
+          </form>
+        </div>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+          {[["نیروی برنامه‌ریزی‌شده", activeSchedule.length, "text-primary"], ["حاضر", presentCount, "text-success"], ["با تأخیر", lateCount, "text-warning"], ["غایب", absentCount, "text-error"], ["ثبت‌نشده", pendingCount, "text-base-content/60"]].map(([label, count, tone]) => <div key={String(label)} className="rounded-2xl border border-base-300 bg-base-100 p-3 shadow-sm"><div className="text-xs text-base-content/60">{label}</div><div className={`mt-1 text-2xl font-black ${tone}`}>{faNum(Number(count))}</div></div>)}
+        </div>
         <details className="rounded-2xl border border-base-300 bg-base-100 p-4"><summary className="cursor-pointer font-bold text-primary">ثبت برنامهٔ جدید</summary><div className="mt-4"><AssignmentForm staff={staff} shifts={shifts} day={day} /></div></details>
-        {schedule.length ? <div className="overflow-x-auto rounded-2xl border border-base-300 bg-base-100 shadow-sm"><table className="table table-zebra"><thead><tr><th>نیرو</th><th>شیفت / بخش</th><th>سرشیفت</th><th>حضور و غیاب</th><th>مدیریت</th></tr></thead><tbody>{schedule.map((row) => <tr key={row.assignment.id}><td><div className="font-bold">{row.staff.fullName}</div><div className="text-xs text-base-content/60">{row.staff.phone || "شماره ثبت نشده"}</div></td><td>{row.shift.name} · {row.shift.startTime} تا {row.shift.endTime}<div className="text-xs text-base-content/60">{dutyLabel[row.assignment.duty]}</div></td><td>{row.assignment.isLead ? <span className="badge badge-primary">مسئول اصلی</span> : "—"}</td><td><AttendanceActions row={row} day={day} events={attendanceEvents.filter((item) => item.event.recordId === row.attendance?.id)} /></td><td>{row.assignment.status !== "cancelled" && <form action={removeShiftAssignment}><input type="hidden" name="id" value={row.assignment.id} /><input type="hidden" name="workDate" value={day} /><button className="btn btn-xs btn-ghost text-error">لغو برنامه</button></form>}</td></tr>)}</tbody></table></div> : <div className="rounded-2xl border border-dashed border-base-300 p-8 text-center text-sm text-base-content/60">برای این روز برنامه‌ای ثبت نشده است.</div>}
+        <div className="grid gap-3 rounded-2xl border border-base-300 bg-base-100 p-4 md:grid-cols-[1fr_220px]"><label className="form-control"><span className="field-label">جست‌وجوی نام، شیفت یا بخش</span><input className="input input-bordered" value={scheduleSearch} onChange={(event) => setScheduleSearch(event.target.value)} placeholder="نام نیرو یا عنوان شیفت" /></label><label className="form-control"><span className="field-label">وضعیت حضور</span><select className="select select-bordered" value={scheduleStatus} onChange={(event) => setScheduleStatus(event.target.value)}><option value="all">همه وضعیت‌ها</option><option value="scheduled">ثبت‌نشده / برنامه‌ریزی‌شده</option><option value="present">حاضر</option><option value="late">با تأخیر</option><option value="absent">غایب</option><option value="leave">مرخصی</option><option value="cancelled">لغوشده</option></select></label></div>
+        {visibleSchedule.length ? <div className="grid gap-3">{visibleSchedule.map((row) => {
+          const state = row.assignment.status === "cancelled" ? "cancelled" : row.attendance?.status ?? "scheduled";
+          const tone = state === "present" ? "badge-success" : state === "late" ? "badge-warning" : state === "absent" || state === "cancelled" ? "badge-error" : state === "leave" ? "badge-info" : "badge-ghost";
+          return <article key={row.assignment.id} className="overflow-hidden rounded-2xl border border-base-300 bg-base-100 shadow-sm">
+            <div className="flex flex-wrap items-start justify-between gap-3 border-b border-base-200 bg-base-200/25 p-4">
+              <div className="flex items-center gap-3"><div className="grid h-11 w-11 place-items-center rounded-2xl bg-primary/10 font-black text-primary">{row.staff.fullName.slice(0, 1)}</div><div><div className="font-extrabold">{row.staff.fullName}</div><div className="mt-1 text-xs text-base-content/60">{dutyLabel[row.assignment.duty]} · {row.staff.phone || "شماره ثبت نشده"}</div></div></div>
+              <div className="flex flex-wrap items-center gap-2"><span className={`badge ${tone}`}>{attendanceLabel[row.attendance?.status ?? "scheduled"]}</span>{row.assignment.isLead && <span className="badge badge-primary badge-outline">سرشیفت</span>}{row.assignment.status === "cancelled" && <span className="badge badge-error">لغو برنامه</span>}</div>
+            </div>
+            <div className="grid gap-3 p-4 lg:grid-cols-[210px_1fr]">
+              <div className="rounded-xl bg-base-200/50 p-3 text-sm"><div className="font-bold">{row.shift.name}</div><div className="mt-1 text-xs text-base-content/60" dir="ltr">{row.shift.startTime} — {row.shift.endTime}</div><div className="mt-2 text-xs text-base-content/60">{faNum(row.shift.breakMinutes)} دقیقه استراحت</div></div>
+              <AttendanceActions row={row} day={day} events={attendanceEvents.filter((item) => item.event.recordId === row.attendance?.id)} />
+            </div>
+            {row.assignment.status !== "cancelled" && <div className="flex justify-end border-t border-base-200 px-4 py-2"><form action={removeShiftAssignment}><input type="hidden" name="id" value={row.assignment.id} /><input type="hidden" name="workDate" value={day} /><button className="btn btn-xs btn-ghost text-error">لغو برنامهٔ این نیرو</button></form></div>}
+          </article>;
+        })}</div> : <div className="rounded-2xl border border-dashed border-base-300 bg-base-100 p-10 text-center text-sm text-base-content/60">{schedule.length ? "موردی با این جست‌وجو و وضعیت پیدا نشد." : "برای این روز برنامه‌ای ثبت نشده است."}</div>}
       </section>}
       {shiftTab === "swaps" && <section id="swaps" className="space-y-4 rounded-2xl border border-base-300 bg-base-100 p-4">
         <div><h4 className="font-bold">درخواست‌های جابه‌جایی شیفت</h4><p className="mt-1 text-xs text-base-content/60">تغییر مسئول برنامه پس از بررسی تداخل و تأیید مدیر اعمال می‌شود.</p></div>
@@ -436,12 +483,12 @@ export function StaffAdmin({ staff, shifts, schedule, payroll, day, currentJalal
           const rows = payroll.filter((row) => row.period.id === period.id);
           const grossTotal = rows.reduce((sum, row) => sum + row.entry.grossToman, 0);
           const netTotal = rows.reduce((sum, row) => sum + row.entry.netToman, 0);
-          return <section key={period.id} className="overflow-hidden rounded-2xl border border-base-300 bg-base-100 shadow-sm"><div className="flex flex-wrap items-center justify-between gap-3 border-b border-base-200 bg-base-200/30 p-4"><div><h4 className="font-extrabold">{period.title}</h4><div className="mt-1 text-xs text-base-content/60">{formatJalali(period.dateFrom)} تا {formatJalali(period.dateTo)} · {faNum(rows.length)} نفر</div></div><div className="flex flex-wrap items-center gap-2"><span className={`badge ${period.status === "paid" ? "badge-success" : period.status === "approved" ? "badge-info" : "badge-warning"}`}>{period.status === "paid" ? "پرداخت‌شده" : period.status === "approved" ? "تأییدشده" : "پیش‌نویس"}</span>{period.status === "draft" && <>{period.jalaliYear > 0 && <form action={generateJalaliPayroll}><input type="hidden" name="jalaliYear" value={period.jalaliYear} /><input type="hidden" name="jalaliMonth" value={period.jalaliMonth} /><input type="hidden" name="rebuild" value="on" /><button className="btn btn-sm btn-outline rounded-xl">بازسازی محاسبه</button></form>}<form action={approvePayrollPeriod} className="flex flex-wrap gap-2"><input type="hidden" name="id" value={period.id} /><input name="note" className="input input-sm" placeholder="یادداشت تأیید" maxLength={300} /><button className="btn btn-sm btn-primary rounded-xl">قطعی‌کردن و ثبت سند حقوق و بیمه</button></form></>}</div></div>
+          return <section key={period.id} className="overflow-hidden rounded-2xl border border-base-300 bg-base-100 shadow-sm"><div className="flex flex-wrap items-center justify-between gap-3 border-b border-base-200 bg-base-200/30 p-4"><div><h4 className="font-extrabold">{period.title}</h4><div className="mt-1 text-xs text-base-content/60">{formatJalali(period.dateFrom)} تا {formatJalali(period.dateTo)} · {faNum(rows.length)} نفر</div></div><div className="flex flex-wrap items-center gap-2"><span className={`badge ${period.status === "paid" ? "badge-success" : period.status === "approved" ? "badge-info" : "badge-warning"}`}>{period.status === "paid" ? "پرداخت‌شده" : period.status === "approved" ? "تأییدشده" : "پیش‌نویس"}</span>{period.status === "draft" && <>{period.jalaliYear > 0 && <form action={generateJalaliPayroll}><input type="hidden" name="jalaliYear" value={period.jalaliYear} /><input type="hidden" name="jalaliMonth" value={period.jalaliMonth} /><input type="hidden" name="rebuild" value="on" /><button className="btn btn-sm btn-outline rounded-xl">بازسازی محاسبه</button></form>}<form action={approvePayrollPeriod} className="flex flex-wrap gap-2"><input type="hidden" name="id" value={period.id} /><input name="note" className="input input-sm" placeholder="یادداشت تأیید" maxLength={300} /><button className="btn btn-sm btn-primary rounded-xl">قطعی‌کردن و ثبت سند حقوق و بیمه</button></form></>}{period.status !== "draft" && (insuranceSettledPeriods.includes(period.id) ? <span className="badge badge-success">بیمه تسویه شده</span> : <form action={markPayrollInsurancePaid} className="flex flex-wrap items-center gap-2"><input type="hidden" name="periodId" value={period.id} /><select className="select select-sm" name="moneyCode" defaultValue="110201"><option value="110201">پرداخت بیمه از بانک</option><option value="110101">پرداخت بیمه از صندوق</option></select><input name="paymentRef" className="input input-sm w-40" placeholder="شماره پیگیری بیمه" maxLength={100} /><button className="btn btn-sm btn-outline btn-success">ثبت تسویه بیمه</button></form>)}</div></div>
             <div className="grid gap-3 border-b border-base-200 p-4 sm:grid-cols-3"><div className="rounded-xl bg-base-200/50 p-3 text-xs">جمع ناخالص <b className="mt-1 block text-sm">{money(grossTotal)}</b></div><div className="rounded-xl bg-base-200/50 p-3 text-xs">خالص پرداختی <b className="mt-1 block text-sm">{money(netTotal)}</b></div><div className="rounded-xl bg-base-200/50 p-3 text-xs">افراد دارای ردیف حقوق <b className="mt-1 block text-sm">{faNum(rows.length)} نفر</b></div></div>
             <div className="border-b border-base-300 p-3"><h4 className="text-sm font-extrabold">کارکرد و محاسبه هر کارمند</h4><p className="mt-1 text-xs text-base-content/55">ساعت‌های حضور از ثبت ورود و خروج می‌آیند؛ اضافه‌کاری و تعطیل‌کاری را کنترل کنید.</p></div>
             <div className="overflow-x-auto"><table className="w-full min-w-[1060px] text-xs"><thead><tr className="bg-base-200/60 text-base-content/60">{["کارمند", "کارکرد", "اضافه‌کاری", "جمعه‌کاری", "تعطیل‌کاری", "شب‌کاری", "مرخصی", "کسر ساعت", "ناخالص", "کسورات", "خالص", "فیش"].map((label) => <th key={label} className="px-3 py-3 text-start">{label}</th>)}</tr></thead><tbody className="divide-y divide-base-200">{rows.map((row) => <tr key={row.entry.id} className="align-middle hover:bg-base-200/30"><td className="px-3 py-3"><b>{String(row.entry.staffSnapshot.name || row.staff.fullName)}</b><p className="mt-1 text-[10px] text-base-content/50">{row.staff.jobTitle}</p></td>{[row.entry.regularMinutes + row.entry.overtimeMinutes, row.entry.overtimeMinutes, row.entry.fridayMinutes, row.entry.holidayMinutes, row.entry.nightMinutes, row.entry.leaveMinutes, row.entry.shortMinutes + row.entry.unpaidLeaveMinutes].map((minutes, index) => <td key={index} className="px-3 py-3">{(minutes / 60).toLocaleString("fa-IR", { maximumFractionDigits: 2 })}</td>)}<td className="px-3 py-3 font-bold">{money(row.entry.grossToman)}</td><td className="px-3 py-3 text-rose-700">{money(row.entry.employeeInsuranceToman + row.entry.incomeTaxToman + row.entry.penaltyToman)}</td><td className="px-3 py-3 font-extrabold text-emerald-800">{money(row.entry.netToman)}</td><td className="px-3 py-3"><a className="btn btn-sm btn-outline" href={"/admin/payslip/" + row.period.id + "/" + row.staff.id} target="_blank" rel="noreferrer">چاپ</a></td></tr>)}</tbody></table></div>
             <div className="grid gap-3 border-t border-base-300 p-3 lg:grid-cols-2">{rows.map((row) => <div key={row.entry.id}><div className="mb-1 text-xs font-bold">{row.staff.fullName}</div><PayrollEditor row={row} /></div>)}</div>
-            {period.status !== "draft" && <div className="border-t border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-950">لیست قطعی شده است. <a className="font-bold underline" href="/admin/accounting/journal">مشاهده اسناد حقوق و بیمه در حسابداری</a></div>}
+            {period.status !== "draft" && <div className="border-t border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-950">لیست قطعی شده است. <a className="font-bold underline" href={`/admin/accounting/journal?from=${period.dateFrom}&to=${period.dateTo}&source=payroll`}>مشاهده اسناد حقوق و بیمه در حسابداری</a></div>}
 
           </section>;
         })}

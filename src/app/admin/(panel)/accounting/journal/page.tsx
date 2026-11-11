@@ -1,6 +1,7 @@
 import { journalBook } from "@/lib/accounting";
 import { reportRange } from "@/lib/report-range";
-import { DeleteVoucherButton, ReportToolbar } from "@/components/admin/accounting-ui";
+import Link from "next/link";
+import { DeleteVoucherButton, JournalFilters, ReportToolbar } from "@/components/admin/accounting-ui";
 import { EmptyBox } from "@/components/admin/ui";
 import { cn, faNum, formatJalali, formatPrice } from "@/lib/utils";
 
@@ -9,12 +10,13 @@ const srcLabel: Record<string, [string, string]> = {
   income: ["درآمد", "badge-success"],
   expense: ["هزینه", "badge-error"],
   manual: ["سند دستی", "badge-ghost"],
+  payroll: ["حقوق و بیمه", "badge-warning"],
 };
 
 export default async function JournalPage({ searchParams }: { searchParams: Promise<{ from?: string; to?: string; source?: string; q?: string }> }) {
   const sp = await searchParams;
   const { from, to } = reportRange(sp);
-  const source = ["reservation", "income", "expense", "manual"].includes(sp.source ?? "") ? sp.source : undefined;
+  const source = ["reservation", "income", "expense", "manual", "payroll"].includes(sp.source ?? "") ? sp.source : undefined;
   const q = (sp.q ?? "").slice(0, 60);
   const entries = await journalBook(q ? "1900-01-01" : from, q ? "2999-12-31" : to, { source, q: q || undefined });
   const td = entries.reduce((s, e) => s + e.lines.reduce((x, l) => x + Number(l.debit), 0), 0);
@@ -22,6 +24,7 @@ export default async function JournalPage({ searchParams }: { searchParams: Prom
   return (
     <div>
       <ReportToolbar from={from} to={to} exportHref={`/api/accounting/export?report=journal&from=${from}&to=${to}${source ? `&source=${source}` : ""}`} />
+      <JournalFilters source={source ?? "all"} query={q} />
       <div className="card card-border bg-base-100 shadow-sm">
         <div className="card-body p-4 md:p-6">
           <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
@@ -42,9 +45,9 @@ export default async function JournalPage({ searchParams }: { searchParams: Prom
                       <td className="font-bold">#{faNum(e.id)}</td>
                       <td>{formatJalali(e.date)}</td>
                       <td colSpan={2} className="font-medium">
-                        {e.description} <span className={cn("badge badge-xs badge-soft mr-1", srcLabel[e.source]?.[1])}>{srcLabel[e.source]?.[0]}</span>
+                        {e.description} <span className={cn("badge badge-xs badge-soft mr-1", srcLabel[e.source]?.[1])}>{srcLabel[e.source]?.[0]}</span>{e.sourceType.startsWith("reversal:") && <span className="badge badge-xs badge-warning mr-1">برگشت</span>}
                       </td>
-                      <td colSpan={2} className="text-left">{e.source !== "reservation" && <DeleteVoucherButton id={e.id} />}</td>
+                      <td colSpan={2} className="text-left"><div className="flex justify-end gap-2"><Link href={`/admin/accounting/voucher/${e.id}`} className="btn btn-xs btn-outline">جزئیات / چاپ</Link>{e.source !== "reservation" && e.source !== "payroll" && !e.sourceType.startsWith("reversal:") && <DeleteVoucherButton id={e.id} />}</div></td>
                     </tr>
                     {e.lines.map((l) => (
                       <tr key={l.id}>
