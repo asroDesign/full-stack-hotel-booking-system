@@ -1,12 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toJalaali } from "jalaali-js";
 import { JalaliDatePicker } from "@/components/jalali-date-picker";
 import { faNum, formatJalali } from "@/lib/utils";
-import type { PayrollPolicyCore } from "@/lib/hotel-payroll-core";
-import { applyShiftTemplate, approvePayrollPeriod, assignShift, createLeaveRequest, createPayrollAdjustment, createShiftSwapRequest, decideLeaveRequest, decidePayrollAdjustment, decideShiftSwap, generateJalaliPayroll, markPayrollPaid, punchAttendance, removeShiftAssignment, savePayrollPolicy, saveShift, saveShiftTemplate, saveStaff, setAttendanceStatus, toggleShiftTemplate, updatePayrollEntry } from "@/app/actions/staff";
-import type { hotelAttendance, hotelAttendanceEvents, hotelLeaveRequests, hotelPayrollAdjustments, hotelPayrollEntries, hotelPayrollPeriods, hotelShiftAssignments, hotelShiftSwapRequests, hotelShiftTemplates, hotelShifts, hotelStaff } from "@/db/schema";
+import type { PayrollPolicyCore, TaxBand } from "@/lib/hotel-payroll-core";
+import { applyShiftTemplate, approvePayrollPeriod, assignShift, createLeaveRequest, createPayrollAdjustment, createPayrollLeave, createShiftSwapRequest, decideLeaveRequest, decidePayrollAdjustment, decidePayrollLeave, decideShiftSwap, generateJalaliPayroll, markPayrollPaid, punchAttendance, removeShiftAssignment, savePayrollPolicy, saveShift, saveShiftTemplate, saveStaff, setAttendanceStatus, toggleShiftTemplate, updatePayrollEntry } from "@/app/actions/staff";
+import type { hotelAttendance, hotelAttendanceEvents, hotelLeaveRequests, hotelPayrollAdjustments, hotelPayrollEntries, hotelPayrollLeaves, hotelPayrollPeriods, hotelShiftAssignments, hotelShiftSwapRequests, hotelShiftTemplates, hotelShifts, hotelStaff } from "@/db/schema";
 
 type Staff = typeof hotelStaff.$inferSelect;
 type Shift = typeof hotelShifts.$inferSelect;
@@ -14,6 +14,7 @@ type Schedule = { assignment: typeof hotelShiftAssignments.$inferSelect; staff: 
 type Payroll = { entry: typeof hotelPayrollEntries.$inferSelect; period: typeof hotelPayrollPeriods.$inferSelect; staff: Staff };
 type Template = { template: typeof hotelShiftTemplates.$inferSelect; staff: Staff; shift: Shift };
 type Leave = { request: typeof hotelLeaveRequests.$inferSelect; staff: Staff };
+type PayrollLeave = { leave: typeof hotelPayrollLeaves.$inferSelect; staff: Staff };
 type Swap = { request: typeof hotelShiftSwapRequests.$inferSelect; assignment: typeof hotelShiftAssignments.$inferSelect };
 type Adjustment = { adjustment: typeof hotelPayrollAdjustments.$inferSelect; staff: Staff };
 type AttendanceEvent = { event: typeof hotelAttendanceEvents.$inferSelect; admin: { id: number; name: string } };
@@ -146,13 +147,57 @@ function LeaveSection({ staff, requests }: { staff: Staff[]; requests: Leave[] }
   </section>;
 }
 
+function PayrollLeaveSection({ staff, leaves, year, month }: { staff: Staff[]; leaves: PayrollLeave[]; year: number; month: number }) {
+  const target = leaves.filter(({ leave }) => leave.jalaliYear === year && leave.jalaliMonth === month);
+  return <section id="payroll-leave" className="space-y-3 rounded-box border border-base-300 bg-base-100 p-4">
+    <div><h3 className="font-bold">مرخصی ماهانه بر اساس ساعت</h3><p className="text-xs text-base-content/60">مرخصی پس از تأیید مدیر در محاسبهٔ حقوق ماه انتخاب‌شده ثبت می‌شود.</p></div>
+    <form action={createPayrollLeave} className="grid gap-3 md:grid-cols-6">
+      <label className="form-control"><span className="field-label">کارمند</span><select className="select" name="staffId" required defaultValue=""><option value="" disabled>انتخاب</option>{staff.map((person) => <option key={person.id} value={person.id}>{person.fullName}</option>)}</select></label>
+      <input type="hidden" name="jalaliYear" value={year} /><input type="hidden" name="jalaliMonth" value={month} />
+      <label className="form-control"><span className="field-label">نوع مرخصی</span><select className="select" name="kind" defaultValue="annual">{Object.entries(leaveLabel).filter(([key]) => key !== "personal").map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
+      <label className="form-control"><span className="field-label">مدت (ساعت)</span><input className="input" name="hours" type="number" min="0.25" max="744" step="0.25" required /></label>
+      <label className="form-control md:col-span-2"><span className="field-label">توضیحات</span><input className="input" name="note" maxLength={300} /></label>
+      <button className="btn btn-primary md:col-span-6">ثبت مرخصی برای بررسی</button>
+    </form>
+    {target.length > 0 && <div className="divide-y divide-base-200">{target.map(({ leave, staff: person }) => <div key={leave.id} className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm"><div><b>{person.fullName}</b> · {leaveLabel[leave.kind]} · {faNum(leave.hours)} ساعت<div className="text-xs text-base-content/60">{leave.note || "بدون توضیح"} · {statusLabel[leave.status]}</div></div>{leave.status === "pending" && <div className="flex gap-2">{["approved", "rejected"].map((status) => <form key={status} action={decidePayrollLeave}><input type="hidden" name="id" value={leave.id} /><input type="hidden" name="status" value={status} /><button className={`btn btn-xs ${status === "approved" ? "btn-success" : "btn-error"}`}>{status === "approved" ? "تأیید" : "رد"}</button></form>)}</div>}</div>)}</div>}
+    {!target.length && <p className="text-sm text-base-content/60">برای این ماه مرخصی ساعتی ثبت نشده است.</p>}
+  </section>;
+}
+
+function TaxBracketEditor({ initial }: { initial: TaxBand[] }) {
+  const [bands, setBands] = useState<TaxBand[]>(initial);
+  const update = (index: number, patch: Partial<TaxBand>) => setBands((current) => current.map((band, i) => i === index ? { ...band, ...patch } : band));
+  const add = () => setBands((current) => {
+    const next = [...current]; const openIndex = next.findIndex((band) => band.upToToman === null);
+    if (openIndex >= 0) {
+      const priorLimit = openIndex > 0 ? next[openIndex - 1].upToToman ?? 0 : 0;
+      const priorRate = next[openIndex].ratePercent;
+      next[openIndex] = { ...next[openIndex], upToToman: priorLimit + 20_000_000 };
+      next.splice(openIndex + 1, 0, { upToToman: null, ratePercent: Math.min(100, priorRate + 5) });
+      return next;
+    }
+    return [...next, { upToToman: null, ratePercent: next.length ? Math.min(100, next[next.length - 1].ratePercent + 5) : 10 }];
+  });
+  return <fieldset className="rounded-box border border-base-300 p-3 md:col-span-4">
+    <legend className="px-1 text-sm font-semibold">پلکان مالیات حقوق</legend>
+    <input type="hidden" name="taxBrackets" value={JSON.stringify(bands)} />
+    <p className="mb-2 text-xs text-base-content/60">حد پلکان‌ها پس از معافیت ماهانه محاسبه می‌شود. خالی گذاشتن حد، آن را به آخرین پلکان باز تبدیل می‌کند.</p>
+    <div className="space-y-2">{bands.map((band, index) => <div key={index} className="grid items-end gap-2 md:grid-cols-[1fr_1fr_auto]">
+      <label className="form-control"><span className="field-label">حد بالای پلکان {faNum(index + 1)} (تومان بیش از معافیت)</span><input className="input" type="number" min="1" value={band.upToToman ?? ""} onChange={(event) => update(index, { upToToman: event.target.value === "" ? null : Number(event.target.value) })} /></label>
+      <label className="form-control"><span className="field-label">نرخ مالیات %</span><input className="input" type="number" min="0" max="100" value={band.ratePercent} onChange={(event) => update(index, { ratePercent: Number(event.target.value) })} /></label>
+      <button type="button" className="btn btn-error btn-outline" onClick={() => setBands((current) => current.filter((_, i) => i !== index))}>حذف پلکان</button>
+    </div>)}</div>
+    <button type="button" className="btn btn-sm btn-outline mt-3" onClick={add}>افزودن پلکان</button>
+  </fieldset>;
+}
+
 function PayrollPolicySection({ policy }: { policy: PayrollPolicyCore }) {
   const holidayInput = policy.publicHolidayDates.map((value) => {
     const [gy, gm, gd] = value.split("-").map(Number); const date = toJalaali(gy, gm, gd);
     return `${date.jy}/${String(date.jm).padStart(2, "0")}/${String(date.jd).padStart(2, "0")}`;
   }).join("\n");
-  return <details id="policy" className="rounded-box border border-base-300 bg-base-100 p-4">
-    <summary className="cursor-pointer font-bold">تنظیمات قانون و نرخ‌های حقوق سال {faNum(policy.jalaliYear)}</summary>
+  return <section id="policy" className="rounded-box border border-base-300 bg-base-100 p-4">
+    <h3 className="font-bold">تنظیمات قانونی و نرخ‌های حقوق سال {faNum(policy.jalaliYear)}</h3>
     <p className="my-2 text-xs text-base-content/60">مبالغ بر حسب تومان هستند. مقادیر نمونه باید با بخشنامه رسمی همان سال بررسی و توسط مدیر تنظیم شوند.</p>
     <form action={savePayrollPolicy} className="grid gap-3 md:grid-cols-4">
       <label className="form-control"><span className="field-label">سال شمسی این سیاست</span><input className="input" name="jalaliYear" type="number" min="1300" max="1600" defaultValue={policy.jalaliYear} /></label>
@@ -162,14 +207,14 @@ function PayrollPolicySection({ policy }: { policy: PayrollPolicyCore }) {
       {([
         ["employeeInsurancePercent", "بیمه کارمند %"], ["employerInsurancePercent", "بیمه کارفرما %"], ["unemploymentInsurancePercent", "بیمه بیکاری %"], ["overtimePercent", "فوق‌العاده اضافه‌کاری %"], ["fridayPremiumPercent", "فوق‌العاده جمعه‌کاری %"], ["holidayPremiumPercent", "فوق‌العاده تعطیل‌کاری %"], ["nightPremiumPercent", "فوق‌العاده شب‌کاری %"], ["standardMonthlyHours", "ساعت استاندارد ماهانه"], ["minimumInsuredHistoryDaysForChildAllowance", "حداقل سابقه بیمه حق اولاد (روز)"], ["annualLeaveDays", "مرخصی استحقاقی سالانه (روز)"],
       ] as [keyof PayrollPolicyCore, string][]).map(([key, label]) => <label key={key} className="form-control"><span className="field-label">{label}</span><input className="input" name={key} type="number" min="0" max={key === "standardMonthlyHours" ? 744 : 100} defaultValue={policy[key] as number} /></label>)}
-      <label className="form-control md:col-span-2"><span className="field-label">پله‌های مالیات (JSON: بازه‌ها بعد از معافیت)</span><textarea className="textarea min-h-28 font-mono text-xs" name="taxBrackets" dir="ltr" defaultValue={JSON.stringify(policy.taxBrackets, null, 2)} /></label>
+      <TaxBracketEditor initial={policy.taxBrackets} />
       <label className="form-control md:col-span-2"><span className="field-label">تعطیلات رسمی (هر تاریخ شمسی در یک خط: ۱۴۰۵/۰۱/۰۱)</span><textarea className="textarea min-h-28 font-mono text-xs" name="publicHolidayDates" dir="ltr" defaultValue={holidayInput} /></label>
       <fieldset className="rounded-box border border-base-300 p-3 md:col-span-2"><legend className="px-1 text-sm font-semibold">اجزای مشمول مالیات</legend><div className="grid grid-cols-2 gap-2">{Object.entries(componentLabel).map(([key, label]) => <label key={key} className="flex items-center gap-2 text-sm"><input className="checkbox checkbox-sm checkbox-primary" type="checkbox" name="taxableComponentKeys" value={key} defaultChecked={policy.taxableComponentKeys.includes(key)} />{label}</label>)}</div></fieldset>
       <fieldset className="rounded-box border border-base-300 p-3 md:col-span-2"><legend className="px-1 text-sm font-semibold">اجزای مشمول بیمه</legend><div className="grid grid-cols-2 gap-2">{Object.entries(componentLabel).map(([key, label]) => <label key={key} className="flex items-center gap-2 text-sm"><input className="checkbox checkbox-sm checkbox-primary" type="checkbox" name="insurableComponentKeys" value={key} defaultChecked={policy.insurableComponentKeys.includes(key)} />{label}</label>)}</div></fieldset>
       <label className="form-control md:col-span-2"><span className="field-label">منبع و یادداشت حقوقی</span><textarea className="textarea min-h-28" name="legalSourceNote" maxLength={500} defaultValue={policy.legalSourceNote} /></label>
       <button className="btn btn-primary md:col-span-4">ذخیره سیاست حقوق سال شمسی</button>
     </form>
-  </details>;
+  </section>;
 }
 
 function AdjustmentSection({ staff, adjustments, year, month }: { staff: Staff[]; adjustments: Adjustment[]; year: number; month: number }) {
@@ -235,39 +280,51 @@ function PayrollEditor({ row }: { row: Payroll }) {
   );
 }
 
-export function StaffAdmin({ staff, shifts, schedule, payroll, day, currentJalaliYear, templates, leaveRequests, swaps, adjustments, policy, attendanceEvents }: { staff: Staff[]; shifts: Shift[]; schedule: Schedule[]; payroll: Payroll[]; day: string; currentJalaliYear: number; templates: Template[]; leaveRequests: Leave[]; swaps: Swap[]; adjustments: Adjustment[]; policy: PayrollPolicyCore; attendanceEvents: AttendanceEvent[] }) {
+export function StaffAdmin({ staff, shifts, schedule, payroll, day, currentJalaliYear, templates, leaveRequests, swaps, adjustments, payrollLeaves, policy, attendanceEvents }: { staff: Staff[]; shifts: Shift[]; schedule: Schedule[]; payroll: Payroll[]; day: string; currentJalaliYear: number; templates: Template[]; leaveRequests: Leave[]; swaps: Swap[]; adjustments: Adjustment[]; payrollLeaves: PayrollLeave[]; policy: PayrollPolicyCore; attendanceEvents: AttendanceEvent[] }) {
+  const [activeTab, setActiveTab] = useState<"people" | "shifts" | "schedule" | "payroll">("people");
+  const [payrollTab, setPayrollTab] = useState<"list" | "extras" | "policy">("list");
   const [scheduleDate, setScheduleDate] = useState(day);
   const { jm: currentMonth } = toJalaali(...day.split("-").map(Number) as [number, number, number]);
   const [payrollYear, setPayrollYear] = useState(currentJalaliYear);
   const [payrollMonth, setPayrollMonth] = useState(currentMonth);
   const periods = Array.from(new Map(payroll.map((p) => [p.period.id, p.period])).values());
+  useEffect(() => {
+    const hash = window.location.hash.slice(1);
+    if (["people"].includes(hash)) setActiveTab("people");
+    if (["shifts", "templates"].includes(hash)) setActiveTab("shifts");
+    if (["schedule", "swaps"].includes(hash)) setActiveTab("schedule");
+    if (["payroll", "leave", "adjustments", "policy"].includes(hash)) setActiveTab("payroll");
+    if (hash === "leave" || hash === "adjustments") setPayrollTab("extras");
+    if (hash === "policy") setPayrollTab("policy");
+  }, []);
   return (
-    <div className="space-y-8">
-      <section id="people" className="space-y-3">
+    <div className="space-y-6">
+      <div role="tablist" aria-label="بخش‌های نیروی انسانی" className="tabs tabs-boxed w-fit max-w-full flex-wrap">
+        {([ ["people", "نیروی انسانی"], ["shifts", "تعریف شیفت‌ها"], ["schedule", "برنامه و حضور"], ["payroll", "حقوق و دستمزد"] ] as const).map(([id, label]) => <button key={id} type="button" role="tab" aria-selected={activeTab === id} className={`tab ${activeTab === id ? "tab-active" : ""}`} onClick={() => setActiveTab(id)}>{label}</button>)}
+      </div>
+      {activeTab === "people" && <section id="people" role="tabpanel" className="space-y-3">
         <h2 className="text-lg font-extrabold">تعریف نیروی انسانی <span className="badge badge-ghost">{faNum(staff.length)}</span></h2>
         <p className="text-sm text-base-content/60">اطلاعات تماس و نرخ پرداخت را برای هر نیرو ثبت کنید. شماره همراه برای پیامک‌های وظایف شیفت استفاده می‌شود.</p>
         <StaffForm />
         <div className="grid gap-3 lg:grid-cols-2">{staff.map((person) => <StaffForm key={person.id} staff={person} />)}</div>
-      </section>
+      </section>}
 
-      <section id="shifts" className="space-y-3">
+      {activeTab === "shifts" && <section id="shifts" role="tabpanel" className="space-y-3">
         <h2 className="text-lg font-extrabold">تعریف شیفت‌های کاری</h2>
         <p className="text-sm text-base-content/60">ساعت پایان کمتر از شروع به‌عنوان شیفت شبانه در نظر گرفته می‌شود.</p>
         <ShiftForm />
         <div className="grid gap-3 lg:grid-cols-2">{shifts.map((shift) => <ShiftForm key={shift.id} shift={shift} />)}</div>
-      </section>
+        <TemplateSection staff={staff} shifts={shifts} templates={templates} day={day} />
+      </section>}
 
-      <section id="schedule" className="space-y-3">
+      {activeTab === "schedule" && <section id="schedule" role="tabpanel" className="space-y-3">
         <h2 className="text-lg font-extrabold">برنامه و حضور شیفت‌ها</h2>
         <form method="get" action="/admin/staff" className="flex flex-wrap items-end gap-3 rounded-box bg-base-100 p-4"><JalaliDatePicker name="day" label="تاریخ برنامه" value={scheduleDate} onChange={setScheduleDate} /><button className="btn btn-sm">نمایش روز</button></form>
         <AssignmentForm staff={staff} shifts={shifts} day={day} />
-        <TemplateSection staff={staff} shifts={shifts} templates={templates} day={day} />
         {schedule.length ? <div className="overflow-x-auto rounded-box border border-base-300 bg-base-100"><table className="table"><thead><tr><th>نیرو</th><th>شیفت / بخش</th><th>سرشیفت</th><th>حضور و غیاب</th><th /></tr></thead><tbody>{schedule.map((row) => <tr key={row.assignment.id}><td><div className="font-bold">{row.staff.fullName}</div><div className="text-xs text-base-content/60">{row.staff.phone || "شماره ثبت نشده"}</div></td><td>{row.shift.name} · {row.shift.startTime} تا {row.shift.endTime}<div className="text-xs text-base-content/60">{dutyLabel[row.assignment.duty]}</div></td><td>{row.assignment.isLead ? <span className="badge badge-primary">مسئول اصلی</span> : "—"}</td><td><AttendanceActions row={row} day={day} events={attendanceEvents.filter((item) => item.event.recordId === row.attendance?.id)} /></td><td>{row.assignment.status !== "cancelled" && <form action={removeShiftAssignment}><input type="hidden" name="id" value={row.assignment.id} /><input type="hidden" name="workDate" value={day} /><button className="btn btn-xs btn-ghost text-error">لغو برنامه</button></form>}</td></tr>)}</tbody></table></div> : <div className="rounded-box border border-dashed p-6 text-center text-sm text-base-content/60">برای {formatJalali(day, true)} هنوز برنامه شیفتی ثبت نشده است.</div>}
-      </section>
+      </section>}
 
-      <LeaveSection staff={staff} requests={leaveRequests} />
-
-      <section id="swaps" className="space-y-3 rounded-box border border-base-300 bg-base-100 p-4">
+      {activeTab === "schedule" && <section id="swaps" role="tabpanel" className="space-y-3 rounded-box border border-base-300 bg-base-100 p-4">
         <div><h3 className="font-bold">جابه‌جایی شیفت‌ها</h3><p className="text-xs text-base-content/60">تغییر مسئول برنامه فقط پس از بررسی هم‌پوشانی و تأیید مدیر اعمال می‌شود.</p></div>
         {schedule.length > 0 && <div className="space-y-2">{schedule.map((row) => <form key={row.assignment.id} action={createShiftSwapRequest} className="flex flex-wrap items-end gap-2 border-b border-base-200 pb-2">
           <input type="hidden" name="assignmentId" value={row.assignment.id} /><div className="min-w-40 text-sm"><b>{row.staff.fullName}</b> · {row.shift.name} · {formatJalali(day, true)}</div>
@@ -275,11 +332,15 @@ export function StaffAdmin({ staff, shifts, schedule, payroll, day, currentJalal
           <label className="form-control"><span className="field-label">دلیل</span><input className="input input-sm" name="reason" maxLength={300} /></label><button className="btn btn-sm">ثبت درخواست</button>
         </form>)}</div>}
         {swaps.length > 0 && <div className="divide-y divide-base-200">{swaps.map(({ request, assignment }) => <div key={request.id} className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm"><div>{staff.find((p) => p.id === request.fromStaffId)?.fullName || "نیروی حذف‌شده"} ← {staff.find((p) => p.id === request.toStaffId)?.fullName || "نیروی حذف‌شده"} · {formatJalali(assignment.workDate, true)}<div className="text-xs text-base-content/60">{request.reason || "بدون توضیح"} · {statusLabel[request.status]}</div></div>{request.status === "pending" && <div className="flex gap-2">{["approved", "rejected"].map((status) => <form key={status} action={decideShiftSwap}><input type="hidden" name="id" value={request.id} /><input type="hidden" name="status" value={status} /><button className={`btn btn-xs ${status === "approved" ? "btn-success" : "btn-error"}`}>{status === "approved" ? "تأیید" : "رد"}</button></form>)}</div>}</div>)}</div>}
-      </section>
+      </section>}
 
-      <section id="payroll" className="space-y-3">
+      {activeTab === "payroll" && <section id="payroll" role="tabpanel" className="space-y-3">
         <h2 className="text-lg font-extrabold">حقوق و دستمزد</h2>
         <p className="text-sm text-base-content/60">دوره بر اساس ماه شمسی ساخته می‌شود. مزد پایه، مزایا، اضافه‌کاری، جمعه‌کاری، شب‌کاری، مرخصی، بیمه و مالیات از پروفایل و حضور ثبت‌شده snapshot می‌شوند.</p>
+        <div role="tablist" aria-label="بخش‌های حقوق و دستمزد" className="tabs tabs-boxed w-fit max-w-full flex-wrap">
+          {([["list", "لیست حقوق ماهانه"], ["extras", "مرخصی، تشویقی و جریمه"], ["policy", "تنظیمات قانونی سالانه"]] as const).map(([id, label]) => <button key={id} type="button" role="tab" aria-selected={payrollTab === id} className={`tab ${payrollTab === id ? "tab-active" : ""}`} onClick={() => setPayrollTab(id)}>{label}</button>)}
+        </div>
+        {payrollTab === "list" && <div className="space-y-3">
         <div className="grid gap-3 rounded-box border border-base-300 bg-base-100 p-4">
           <form action={generateJalaliPayroll} className="grid gap-3 md:grid-cols-4">
             <label className="form-control"><span className="field-label">سال شمسی</span><input className="input" name="jalaliYear" type="number" min="1300" max="1600" value={payrollYear} onChange={(e) => setPayrollYear(Number(e.target.value))} /></label>
@@ -287,7 +348,6 @@ export function StaffAdmin({ staff, shifts, schedule, payroll, day, currentJalal
             <label className="form-control"><span className="field-label">عنوان دوره</span><input className="input" name="title" placeholder="اختیاری" /></label>
             <button className="btn btn-primary self-end">ساخت snapshot پیش‌نویس</button>
           </form>
-          <div className="flex flex-wrap gap-3"><PayrollPolicySection policy={policy} /><AdjustmentSection staff={staff} adjustments={adjustments} year={payrollYear} month={payrollMonth} /></div>
         </div>
         {!periods.length ? <div className="rounded-box border border-dashed p-5 text-center text-sm text-base-content/60">هنوز دوره‌ای ساخته نشده است.</div> : periods.map((period) => (
           <div key={period.id} className="space-y-3 rounded-box border border-base-300 bg-base-100 p-4">
@@ -295,7 +355,18 @@ export function StaffAdmin({ staff, shifts, schedule, payroll, day, currentJalal
             {payroll.filter((row) => row.period.id === period.id).map((row) => <div key={row.entry.id} className="grid gap-2 border-t border-base-200 pt-3 md:grid-cols-[1fr_1fr_2fr]"><div><b>{row.staff.fullName}</b><div className="text-xs text-base-content/60">حضور: {faNum(row.entry.regularMinutes)} دقیقه · اضافه‌کاری: {faNum(row.entry.overtimeMinutes)} دقیقه · مرخصی: {faNum(row.entry.leaveMinutes)} دقیقه</div></div><div className="font-bold">خالص: {money(row.entry.netToman)}</div><PayrollEditor row={row} /></div>)}
           </div>
         ))}
-      </section>
+        </div>}
+        {payrollTab === "extras" && <div className="space-y-3">
+          <div className="grid gap-3 rounded-box border border-base-300 bg-base-100 p-4 md:grid-cols-2">
+            <label className="form-control"><span className="field-label">سال شمسی مرخصی و تعدیلات</span><input className="input" type="number" min="1300" max="1600" value={payrollYear} onChange={(event) => setPayrollYear(Number(event.target.value))} /></label>
+            <label className="form-control"><span className="field-label">ماه شمسی مرخصی و تعدیلات</span><select className="select" value={payrollMonth} onChange={(event) => setPayrollMonth(Number(event.target.value))}>{["فروردین", "اردیبهشت", "خرداد", "تیر", "مرداد", "شهریور", "مهر", "آبان", "آذر", "دی", "بهمن", "اسفند"].map((name, index) => <option key={name} value={index + 1}>{name}</option>)}</select></label>
+          </div>
+          <PayrollLeaveSection staff={staff} leaves={payrollLeaves} year={payrollYear} month={payrollMonth} />
+          <LeaveSection staff={staff} requests={leaveRequests} />
+          <AdjustmentSection staff={staff} adjustments={adjustments} year={payrollYear} month={payrollMonth} />
+        </div>}
+        {payrollTab === "policy" && <PayrollPolicySection policy={policy} />}
+      </section>}
     </div>
   );
 }

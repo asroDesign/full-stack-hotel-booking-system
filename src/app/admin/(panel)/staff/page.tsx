@@ -1,7 +1,7 @@
 import { asc, desc, eq } from "drizzle-orm";
 import { toJalaali } from "jalaali-js";
 import { db } from "@/db";
-import { admins, hotelAttendance, hotelAttendanceEvents, hotelLeaveRequests, hotelPayrollAdjustments, hotelPayrollEntries, hotelPayrollPeriods, hotelPayrollPolicies, hotelShiftAssignments, hotelShiftSwapRequests, hotelShiftTemplates, hotelShifts, hotelStaff } from "@/db/schema";
+import { admins, hotelAttendance, hotelAttendanceEvents, hotelLeaveRequests, hotelPayrollAdjustments, hotelPayrollEntries, hotelPayrollLeaves, hotelPayrollPeriods, hotelPayrollPolicies, hotelShiftAssignments, hotelShiftSwapRequests, hotelShiftTemplates, hotelShifts, hotelStaff } from "@/db/schema";
 import { PageHeader } from "@/components/admin/ui";
 import { StaffAdmin } from "@/components/admin/staff-admin";
 import { hotelBusinessDate } from "@/lib/hotel-operations";
@@ -18,7 +18,7 @@ export default async function StaffPage({ searchParams }: { searchParams: Promis
   const { jy: currentJalaliYear } = toJalaali(parts[0], parts[1], parts[2]);
   const requestedPolicyYear = Number(params.policyYear);
   const policyYear = Number.isInteger(requestedPolicyYear) && requestedPolicyYear >= 1300 && requestedPolicyYear <= 1600 ? requestedPolicyYear : currentJalaliYear;
-  const [staff, shifts, schedule, payroll, templates, leaveRequests, swaps, adjustments, policy, attendanceEvents] = await Promise.all([
+  const [staff, shifts, schedule, payroll, templates, leaveRequests, swaps, adjustments, payrollLeaves, policy, attendanceEvents] = await Promise.all([
     db.select().from(hotelStaff).orderBy(asc(hotelStaff.fullName)),
     db.select().from(hotelShifts).orderBy(asc(hotelShifts.startTime)),
     db.select({ assignment: hotelShiftAssignments, staff: hotelStaff, shift: hotelShifts, attendance: hotelAttendance })
@@ -44,6 +44,8 @@ export default async function StaffPage({ searchParams }: { searchParams: Promis
       .orderBy(desc(hotelShiftSwapRequests.createdAt)).limit(100),
     db.select({ adjustment: hotelPayrollAdjustments, staff: hotelStaff }).from(hotelPayrollAdjustments)
       .innerJoin(hotelStaff, eq(hotelPayrollAdjustments.staffId, hotelStaff.id)).orderBy(desc(hotelPayrollAdjustments.createdAt)).limit(100),
+    db.select({ leave: hotelPayrollLeaves, staff: hotelStaff }).from(hotelPayrollLeaves)
+      .innerJoin(hotelStaff, eq(hotelPayrollLeaves.staffId, hotelStaff.id)).orderBy(desc(hotelPayrollLeaves.createdAt)).limit(200),
     db.select().from(hotelPayrollPolicies).where(eq(hotelPayrollPolicies.jalaliYear, policyYear)).then((rows) => rows[0] ?? null),
     db.select({ event: hotelAttendanceEvents, admin: { id: admins.id, name: admins.name } }).from(hotelAttendanceEvents)
       .innerJoin(hotelAttendance, eq(hotelAttendanceEvents.recordId, hotelAttendance.id))
@@ -55,7 +57,7 @@ export default async function StaffPage({ searchParams }: { searchParams: Promis
     <div className="space-y-2">
       <PageHeader title="نیروی انسانی، شیفت و حقوق" desc="تعریف نیرو و برنامه کاری، ثبت حضور و غیاب و آماده‌سازی و تسویه حقوق" />
       {params.error && <div role="alert" className="alert alert-error mb-4">{params.error}</div>}
-      <StaffAdmin staff={staff} shifts={shifts} schedule={schedule} payroll={payroll} day={day} currentJalaliYear={currentJalaliYear} templates={templates} leaveRequests={leaveRequests} swaps={swaps} adjustments={adjustments} policy={policy ?? defaultPayrollPolicy(policyYear)} attendanceEvents={attendanceEvents} />
+      <StaffAdmin staff={staff} shifts={shifts} schedule={schedule} payroll={payroll} day={day} currentJalaliYear={currentJalaliYear} templates={templates} leaveRequests={leaveRequests} swaps={swaps} adjustments={adjustments} payrollLeaves={payrollLeaves} policy={policy ?? defaultPayrollPolicy(policyYear)} attendanceEvents={attendanceEvents} />
     </div>
   );
 }

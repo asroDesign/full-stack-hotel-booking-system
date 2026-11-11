@@ -18,7 +18,10 @@ const num = (value: FormDataEntryValue | null) => {
   const parsed = Number(toEnDigits(String(value ?? "")).replace(/[,٬]/g, ""));
   return Number.isFinite(parsed) ? Math.trunc(parsed) : 0;
 };
-const fail = (message: string, page = "/admin/staff"): never => redirect(`${page}?error=${encodeURIComponent(message)}`);
+const fail = (message: string, page = "/admin/staff"): never => {
+  const [path, hash] = page.split("#", 2);
+  redirect(`${path}?error=${encodeURIComponent(message)}${hash ? `#${hash}` : ""}`);
+};
 const validDate = (value: string) => {
   if (!iso.test(value)) return false;
   const date = new Date(`${value}T00:00:00Z`);
@@ -401,7 +404,7 @@ export async function savePayrollPolicy(fd: FormData) {
   if (year < 1300 || year > 1600) fail("سال شمسی معتبر نیست.");
   let bands: { upToToman: number | null; ratePercent: number }[] = [];
   try { bands = JSON.parse(String(fd.get("taxBrackets") || "[]")); } catch { fail("پله‌های مالیات باید به صورت JSON معتبر وارد شوند."); }
-  if (!Array.isArray(bands) || bands.some((band) => !band || (band.upToToman !== null && (!Number.isSafeInteger(band.upToToman) || band.upToToman <= 0)) || !Number.isFinite(band.ratePercent) || band.ratePercent < 0 || band.ratePercent > 100)) fail("ساختار پله‌های مالیات یا نرخ درصد معتبر نیست.");
+  if (!Array.isArray(bands) || !bands.length || bands.some((band) => !band || (band.upToToman !== null && (!Number.isSafeInteger(band.upToToman) || band.upToToman <= 0)) || !Number.isFinite(band.ratePercent) || band.ratePercent < 0 || band.ratePercent > 100) || bands.slice(0, -1).some((band) => band.upToToman === null)) fail("ساختار پله‌های مالیات یا نرخ درصد معتبر نیست؛ حد خالی فقط برای آخرین پلکان مجاز است.");
   let prior = 0;
   for (const band of bands) { if (band.upToToman !== null && band.upToToman <= prior) fail("سقف پله‌های مالیات باید صعودی باشد."); if (band.upToToman !== null) prior = band.upToToman; }
   const base = defaultPayrollPolicy(year);
@@ -465,6 +468,35 @@ export async function decidePayrollAdjustment(fd: FormData) {
   if (period && period.status !== "draft") fail("دوره حقوق بسته شده است و تعدیل آن قابل تغییر نیست.");
   await db.update(hotelPayrollAdjustments).set({ status: status as "approved" | "rejected", approvedBy: admin.id, approvedAt: new Date() }).where(eq(hotelPayrollAdjustments.id, id));
   revalidatePath("/admin/staff"); redirect("/admin/staff#adjustments");
+}
+
+export async function createPayrollLeave(fd: FormData) {
+  const admin = await requireAdmin();
+  const staffId = num(fd.get("staffId"));
+  const year = num(fd.get("jalaliYear"));
+  const month = num(fd.get("jalaliMonth"));
+  const rawHours = Number(toEnDigits(String(fd.get("hours") ?? "")).replace(/[,٬]/g, ""));
+  const kind = String(fd.get("kind"));
+  if (!staffId || year < 1300 || year > 1600 || month < 1 || month > 12 || !Number.isFinite(rawHours) || rawHours <= 0 || rawHours > 744 || !["annual", "sick", "unpaid", "other"].includes(kind)) fail("مشخصات مرخصی حقوق را بررسی کنید.", "/admin/staff#leave");
+  const [person] = await db.select({ id: hotelStaff.id }).from(hotelStaff).where(eq(hotelStaff.id, staffId));
+  if (!person) fail("نیروی انتخاب‌شده پیدا نشد.", "/admin/staff#leave");
+  const [closed] = await db.select({ id: hotelPayrollPeriods.id }).from(hotelPayrollPeriods).where(and(eq(hotelPayrollPeriods.jalaliYear, year), eq(hotelPayrollPeriods.jalaliMonth, month), ne(hotelPayrollPeriods.status, "draft")));
+  if (closed) fail("دوره حقوق این ماه بسته شده و مرخصی تازه نمی‌پذیرد.", "/admin/staff#leave");
+  await db.insert(hotelPayrollLeaves).values({ staffId, jalaliYear: year, jalaliMonth: month, kind: kind as "annual" | "sick" | "unpaid" | "other", hours: rawHours, note: cleanText(fd.get("note"), 300), status: "pending", createdBy: admin.id });
+  revalidatePath("/admin/staff"); redirect("/admin/staff#leave");
+}
+
+export async function decidePayrollLeave(fd: FormData) {
+  const admin = await requireAdmin();
+  const id = num(fd.get("id"));
+  const status = String(fd.get("status"));
+  if (!id || !["approved", "rejected"].includes(status)) fail("تصمیم مرخصی حقوق معتبر نیست.", "/admin/staff#leave");
+  const [row] = await db.select().from(hotelPayrollLeaves).where(eq(hotelPayrollLeaves.id, id));
+  if (!row || row.status !== "pending") fail("مرخصی در انتظار بررسی پیدا نشد.", "/admin/staff#leave");
+  const [period] = await db.select().from(hotelPayrollPeriods).where(and(eq(hotelPayrollPeriods.jalaliYear, row.jalaliYear), eq(hotelPayrollPeriods.jalaliMonth, row.jalaliMonth)));
+  if (period && period.status !== "draft") fail("دوره حقوق بسته شده است و مرخصی آن قابل تغییر نیست.", "/admin/staff#leave");
+  await db.update(hotelPayrollLeaves).set({ status: status as "approved" | "rejected", decidedBy: admin.id, decidedAt: new Date() }).where(eq(hotelPayrollLeaves.id, id));
+  revalidatePath("/admin/staff"); redirect("/admin/staff#leave");
 }
 
 export async function generateJalaliPayroll(fd: FormData) {
