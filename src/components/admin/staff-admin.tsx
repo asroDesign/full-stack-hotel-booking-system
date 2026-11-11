@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import { toJalaali } from "jalaali-js";
 import { JalaliDatePicker } from "@/components/jalali-date-picker";
 import { faNum, formatJalali } from "@/lib/utils";
-import { PayrollPayslip } from "@/components/admin/payroll-payslip";
 import type { PayrollPolicyCore, TaxBand } from "@/lib/hotel-payroll-core";
 import { applyShiftTemplate, approvePayrollPeriod, assignShift, createLeaveRequest, createPayrollAdjustment, createPayrollLeave, createShiftSwapRequest, decideLeaveRequest, decidePayrollAdjustment, decidePayrollLeave, decideShiftSwap, generateJalaliPayroll, markPayrollPaid, punchAttendance, removeShiftAssignment, savePayrollPolicy, saveShift, saveShiftTemplate, saveStaff, setAttendanceStatus, toggleShiftTemplate, updatePayrollEntry } from "@/app/actions/staff";
 import type { hotelAttendance, hotelAttendanceEvents, hotelLeaveRequests, hotelPayrollAdjustments, hotelPayrollEntries, hotelPayrollLeaves, hotelPayrollPeriods, hotelShiftAssignments, hotelShiftSwapRequests, hotelShiftTemplates, hotelShifts, hotelStaff } from "@/db/schema";
@@ -83,7 +82,7 @@ function StaffForm({ staff }: { staff?: Staff }) {
 
 function ShiftForm({ shift }: { shift?: Shift }) {
   return (
-    <form action={saveShift} className="grid gap-3 rounded-box border border-base-300 bg-base-100 p-4 md:grid-cols-6">
+    <form action={saveShift} className="grid gap-3 rounded-box border border-base-300 bg-base-100 p-4 sm:grid-cols-2">
       {shift && <input type="hidden" name="id" value={shift.id} />}
       <label className="form-control"><span className="field-label">نام شیفت</span><input className="input" name="name" required placeholder="صبح" defaultValue={shift?.name} /></label>
       <label className="form-control"><span className="field-label">شروع</span><input className="input" type="time" name="startTime" required defaultValue={shift?.startTime ?? "08:00"} /></label>
@@ -327,7 +326,6 @@ export function StaffAdmin({ staff, shifts, schedule, payroll, day, currentJalal
   const { jm: currentMonth } = toJalaali(...day.split("-").map(Number) as [number, number, number]);
   const [payrollYear, setPayrollYear] = useState(currentJalaliYear);
   const [payrollMonth, setPayrollMonth] = useState(currentMonth);
-  const [printEntryId, setPrintEntryId] = useState<number | null>(null);
   const periods = Array.from(new Map(payroll.map((row) => [row.period.id, row.period])).values());
   const latestPayroll = new Map<number, Payroll>();
   for (const row of payroll) if (!latestPayroll.has(row.staff.id)) latestPayroll.set(row.staff.id, row);
@@ -340,7 +338,7 @@ export function StaffAdmin({ staff, shifts, schedule, payroll, day, currentJalal
   };
   const selectShiftTab = (id: "definitions" | "templates" | "schedule" | "swaps") => {
     setShiftTab(id);
-    setHash(id === "definitions" ? "shifts" : id);
+    setHash(id);
   };
   const selectPayrollTab = (id: "list" | "extras" | "policy") => {
     setPayrollTab(id);
@@ -348,10 +346,11 @@ export function StaffAdmin({ staff, shifts, schedule, payroll, day, currentJalal
   };
 
   useEffect(() => {
+    const syncHash = () => {
     const hash = window.location.hash.slice(1);
     if (hash === "insurance") setActiveTab("insurance");
     if (hash === "people") setActiveTab("people");
-    if (["shifts", "templates", "schedule", "swaps"].includes(hash)) {
+    if (["shifts", "definitions", "templates", "schedule", "swaps"].includes(hash)) {
       setActiveTab("shifts");
       if (hash === "templates") setShiftTab("templates");
       if (hash === "schedule") setShiftTab("schedule");
@@ -362,21 +361,17 @@ export function StaffAdmin({ staff, shifts, schedule, payroll, day, currentJalal
       if (hash === "leave" || hash === "adjustments") setPayrollTab("extras");
       if (hash === "policy") setPayrollTab("policy");
     }
+    if (hash === "definitions" || hash === "shifts") setShiftTab("definitions");
     if (!hash && new URLSearchParams(window.location.search).has("day")) {
       setActiveTab("shifts");
       setShiftTab("schedule");
     }
+    };
+    syncHash();
+    window.addEventListener("hashchange", syncHash);
+    return () => window.removeEventListener("hashchange", syncHash);
   }, []);
 
-  useEffect(() => {
-    if (printEntryId === null) return;
-    const finishPrint = () => setPrintEntryId(null);
-    window.addEventListener("afterprint", finishPrint);
-    const timer = window.setTimeout(() => window.print(), 150);
-    return () => { window.clearTimeout(timer); window.removeEventListener("afterprint", finishPrint); };
-  }, [printEntryId]);
-
-  const printablePayroll = printEntryId === null ? undefined : payroll.find((row) => row.entry.id === printEntryId);
   const mainTabs = [["people", "نیروی انسانی"], ["insurance", "بیمه"], ["shifts", "شیفت‌ها"], ["payroll", "حقوق و دستمزد"]] as const;
   const shiftTabs = [["definitions", "تعریف شیفت"], ["templates", "الگوهای هفتگی"], ["schedule", "برنامه و حضور"], ["swaps", "جابه‌جایی شیفت"]] as const;
   const payrollTabs = [["list", "لیست حقوق ماهانه"], ["extras", "مرخصی، تشویقی و جریمه"], ["policy", "تنظیمات قانونی سالانه"]] as const;
@@ -417,7 +412,7 @@ export function StaffAdmin({ staff, shifts, schedule, payroll, day, currentJalal
       </div>
       {shiftTab === "definitions" && <div className="space-y-4">
         <div className="flex flex-wrap items-end justify-between gap-3"><div><h4 className="font-bold">تعریف ساعت‌های کاری</h4><p className="mt-1 text-xs text-base-content/60">پایان قبل از شروع، شیفت شبانه محسوب می‌شود.</p></div><details className="dropdown dropdown-end"><summary className="btn btn-primary btn-sm rounded-xl">تعریف شیفت تازه</summary><div className="dropdown-content z-20 mt-3 w-[min(92vw,760px)] rounded-2xl border border-base-300 bg-base-100 p-4 shadow-2xl"><ShiftForm /></div></details></div>
-        <div className="grid gap-3 lg:grid-cols-3">{shifts.map((shift) => <div key={shift.id} className="rounded-2xl border border-base-300 bg-base-100 p-4 shadow-sm"><div className="mb-3 flex items-center justify-between"><div><div className="font-extrabold">{shift.name}</div><div className="mt-1 text-xs text-base-content/60">{shift.startTime} تا {shift.endTime} · {faNum(shift.breakMinutes)} دقیقه استراحت</div></div><span className={`badge ${shift.isActive ? "badge-success" : "badge-ghost"}`}>{shift.isActive ? "فعال" : "غیرفعال"}</span></div><details className="border-t border-base-200 pt-3"><summary className="cursor-pointer text-sm font-semibold">ویرایش مشخصات شیفت</summary><div className="mt-3"><ShiftForm shift={shift} /></div></details></div>)}</div>
+        <div className="grid gap-3 xl:grid-cols-2">{shifts.map((shift) => <div key={shift.id} className="rounded-2xl border border-base-300 bg-base-100 p-4 shadow-sm"><div className="mb-3 flex items-center justify-between"><div><div className="font-extrabold">{shift.name}</div><div className="mt-1 text-xs text-base-content/60">{shift.startTime} تا {shift.endTime} · {faNum(shift.breakMinutes)} دقیقه استراحت</div></div><span className={`badge ${shift.isActive ? "badge-success" : "badge-ghost"}`}>{shift.isActive ? "فعال" : "غیرفعال"}</span></div><details className="border-t border-base-200 pt-3"><summary className="cursor-pointer text-sm font-semibold">ویرایش مشخصات شیفت</summary><div className="mt-3"><ShiftForm shift={shift} /></div></details></div>)}</div>
       </div>}
       {shiftTab === "templates" && <TemplateSection staff={staff} shifts={shifts} templates={templates} day={day} />}
       {shiftTab === "schedule" && <section id="schedule" className="space-y-4">
@@ -437,13 +432,17 @@ export function StaffAdmin({ staff, shifts, schedule, payroll, day, currentJalal
       <div role="tablist" aria-label="بخش‌های حقوق و دستمزد" className="tabs tabs-boxed w-full flex-wrap rounded-2xl border border-base-300 bg-base-100 p-1.5 shadow-sm">{payrollTabs.map(([id, label]) => <button key={id} type="button" role="tab" aria-selected={payrollTab === id} className={`tab flex-1 rounded-xl font-bold ${payrollTab === id ? "tab-active" : ""}`} onClick={() => selectPayrollTab(id)}>{label}</button>)}</div>
       {payrollTab === "list" && <div className="space-y-4">
         <form action={generateJalaliPayroll} className="grid gap-3 rounded-2xl border border-base-300 bg-base-100 p-4 shadow-sm md:grid-cols-4"><label className="form-control"><span className="field-label">سال شمسی</span><input className="input input-bordered" name="jalaliYear" type="number" min="1300" max="1600" value={payrollYear} onChange={(event) => setPayrollYear(Number(event.target.value))} /></label><label className="form-control"><span className="field-label">ماه شمسی</span><select className="select select-bordered" name="jalaliMonth" value={payrollMonth} onChange={(event) => setPayrollMonth(Number(event.target.value))}>{["فروردین", "اردیبهشت", "خرداد", "تیر", "مرداد", "شهریور", "مهر", "آبان", "آذر", "دی", "بهمن", "اسفند"].map((name, index) => <option key={name} value={index + 1}>{name}</option>)}</select></label><label className="form-control"><span className="field-label">عنوان دوره</span><input className="input input-bordered" name="title" placeholder="اختیاری" /></label><button className="btn btn-primary self-end rounded-xl">ساخت لیست حقوق</button></form>
-        {!periods.length ? <div className="rounded-2xl border border-dashed border-base-300 p-10 text-center text-sm text-base-content/60">هنوز لیست حقوقی ساخته نشده است. سال و ماه را انتخاب و «ساخت لیست حقوق» را بزنید.</div> : periods.map((period) => {
+        {!periods.length ? <div className="rounded-2xl border border-dashed border-base-300 p-10 text-center text-sm text-base-content/60">هنوز لیست حقوقی ساخته نشده است. سال و ماه را انتخاب و «ساخت لیست حقوق» را بزنید.</div> : periods.filter((period) => period.jalaliYear === payrollYear && period.jalaliMonth === payrollMonth).map((period) => {
           const rows = payroll.filter((row) => row.period.id === period.id);
           const grossTotal = rows.reduce((sum, row) => sum + row.entry.grossToman, 0);
           const netTotal = rows.reduce((sum, row) => sum + row.entry.netToman, 0);
-          return <section key={period.id} className="overflow-hidden rounded-2xl border border-base-300 bg-base-100 shadow-sm"><div className="flex flex-wrap items-center justify-between gap-3 border-b border-base-200 bg-base-200/30 p-4"><div><h4 className="font-extrabold">{period.title}</h4><div className="mt-1 text-xs text-base-content/60">{formatJalali(period.dateFrom)} تا {formatJalali(period.dateTo)} · {faNum(rows.length)} نفر</div></div><div className="flex flex-wrap items-center gap-2"><span className={`badge ${period.status === "paid" ? "badge-success" : period.status === "approved" ? "badge-info" : "badge-warning"}`}>{period.status === "paid" ? "پرداخت‌شده" : period.status === "approved" ? "تأییدشده" : "پیش‌نویس"}</span>{period.status === "draft" && <>{period.jalaliYear > 0 && <form action={generateJalaliPayroll}><input type="hidden" name="jalaliYear" value={period.jalaliYear} /><input type="hidden" name="jalaliMonth" value={period.jalaliMonth} /><input type="hidden" name="rebuild" value="on" /><button className="btn btn-sm btn-outline rounded-xl">بازسازی محاسبه</button></form>}<form action={approvePayrollPeriod}><input type="hidden" name="id" value={period.id} /><button className="btn btn-sm btn-primary rounded-xl">تأیید لیست</button></form></>}</div></div>
+          return <section key={period.id} className="overflow-hidden rounded-2xl border border-base-300 bg-base-100 shadow-sm"><div className="flex flex-wrap items-center justify-between gap-3 border-b border-base-200 bg-base-200/30 p-4"><div><h4 className="font-extrabold">{period.title}</h4><div className="mt-1 text-xs text-base-content/60">{formatJalali(period.dateFrom)} تا {formatJalali(period.dateTo)} · {faNum(rows.length)} نفر</div></div><div className="flex flex-wrap items-center gap-2"><span className={`badge ${period.status === "paid" ? "badge-success" : period.status === "approved" ? "badge-info" : "badge-warning"}`}>{period.status === "paid" ? "پرداخت‌شده" : period.status === "approved" ? "تأییدشده" : "پیش‌نویس"}</span>{period.status === "draft" && <>{period.jalaliYear > 0 && <form action={generateJalaliPayroll}><input type="hidden" name="jalaliYear" value={period.jalaliYear} /><input type="hidden" name="jalaliMonth" value={period.jalaliMonth} /><input type="hidden" name="rebuild" value="on" /><button className="btn btn-sm btn-outline rounded-xl">بازسازی محاسبه</button></form>}<form action={approvePayrollPeriod} className="flex flex-wrap gap-2"><input type="hidden" name="id" value={period.id} /><input name="note" className="input input-sm" placeholder="یادداشت تأیید" maxLength={300} /><button className="btn btn-sm btn-primary rounded-xl">قطعی‌کردن و ثبت سند حقوق و بیمه</button></form></>}</div></div>
             <div className="grid gap-3 border-b border-base-200 p-4 sm:grid-cols-3"><div className="rounded-xl bg-base-200/50 p-3 text-xs">جمع ناخالص <b className="mt-1 block text-sm">{money(grossTotal)}</b></div><div className="rounded-xl bg-base-200/50 p-3 text-xs">خالص پرداختی <b className="mt-1 block text-sm">{money(netTotal)}</b></div><div className="rounded-xl bg-base-200/50 p-3 text-xs">افراد دارای ردیف حقوق <b className="mt-1 block text-sm">{faNum(rows.length)} نفر</b></div></div>
-            <div className="overflow-x-auto"><table className="table table-zebra"><thead><tr><th>کارمند</th><th>کارکرد</th><th>اضافه‌کاری</th><th>بیمه</th><th>مالیات</th><th>خالص پرداختی</th><th>جزئیات</th></tr></thead><tbody>{rows.map((row) => <tr key={row.entry.id}><td className="font-bold">{row.staff.fullName}<div className="text-xs font-normal text-base-content/60">{row.staff.jobTitle || dutyLabel[row.staff.duty]}</div></td><td>{faNum(Math.round(row.entry.regularMinutes / 60))} ساعت</td><td>{faNum(Math.round(row.entry.overtimeMinutes / 60))} ساعت</td><td>{money(row.entry.employeeInsuranceToman)}</td><td>{money(row.entry.incomeTaxToman)}</td><td className="font-extrabold text-primary">{money(row.entry.netToman)}{row.entry.paymentStatus === "paid" && <span className="badge badge-success badge-sm ms-2">پرداخت شد</span>}</td><td><div className="flex min-w-40 flex-col gap-2"><button type="button" className="btn btn-sm btn-outline btn-primary" onClick={() => setPrintEntryId(row.entry.id)}>چاپ فیش حقوقی</button><PayrollEditor row={row} /></div></td></tr>)}</tbody></table></div>
+            <div className="border-b border-base-300 p-3"><h4 className="text-sm font-extrabold">کارکرد و محاسبه هر کارمند</h4><p className="mt-1 text-xs text-base-content/55">ساعت‌های حضور از ثبت ورود و خروج می‌آیند؛ اضافه‌کاری و تعطیل‌کاری را کنترل کنید.</p></div>
+            <div className="overflow-x-auto"><table className="w-full min-w-[1060px] text-xs"><thead><tr className="bg-base-200/60 text-base-content/60">{["کارمند", "کارکرد", "اضافه‌کاری", "جمعه‌کاری", "تعطیل‌کاری", "شب‌کاری", "مرخصی", "کسر ساعت", "ناخالص", "کسورات", "خالص", "فیش"].map((label) => <th key={label} className="px-3 py-3 text-start">{label}</th>)}</tr></thead><tbody className="divide-y divide-base-200">{rows.map((row) => <tr key={row.entry.id} className="align-middle hover:bg-base-200/30"><td className="px-3 py-3"><b>{String(row.entry.staffSnapshot.name || row.staff.fullName)}</b><p className="mt-1 text-[10px] text-base-content/50">{row.staff.jobTitle}</p></td>{[row.entry.regularMinutes + row.entry.overtimeMinutes, row.entry.overtimeMinutes, row.entry.fridayMinutes, row.entry.holidayMinutes, row.entry.nightMinutes, row.entry.leaveMinutes, row.entry.shortMinutes + row.entry.unpaidLeaveMinutes].map((minutes, index) => <td key={index} className="px-3 py-3">{(minutes / 60).toLocaleString("fa-IR", { maximumFractionDigits: 2 })}</td>)}<td className="px-3 py-3 font-bold">{money(row.entry.grossToman)}</td><td className="px-3 py-3 text-rose-700">{money(row.entry.employeeInsuranceToman + row.entry.incomeTaxToman + row.entry.penaltyToman)}</td><td className="px-3 py-3 font-extrabold text-emerald-800">{money(row.entry.netToman)}</td><td className="px-3 py-3"><a className="btn btn-sm btn-outline" href={"/admin/payslip/" + row.period.id + "/" + row.staff.id} target="_blank" rel="noreferrer">چاپ</a></td></tr>)}</tbody></table></div>
+            <div className="grid gap-3 border-t border-base-300 p-3 lg:grid-cols-2">{rows.map((row) => <div key={row.entry.id}><div className="mb-1 text-xs font-bold">{row.staff.fullName}</div><PayrollEditor row={row} /></div>)}</div>
+            {period.status !== "draft" && <div className="border-t border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-950">لیست قطعی شده است. <a className="font-bold underline" href="/admin/accounting/journal">مشاهده اسناد حقوق و بیمه در حسابداری</a></div>}
+
           </section>;
         })}
       </div>}
@@ -453,6 +452,5 @@ export function StaffAdmin({ staff, shifts, schedule, payroll, day, currentJalal
       </div>}
       {payrollTab === "policy" && <PayrollPolicySection policy={policy} />}
     </section>}
-    {printablePayroll && <PayrollPayslip row={printablePayroll} hotelName={hotelName} />}
   </div>;
 }
