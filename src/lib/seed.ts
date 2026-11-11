@@ -19,6 +19,7 @@ import { seedCityPreset } from "./seed-city";
 import { seedEspinasPreset } from "./seed-espinas";
 import { ensureExtrasDemo } from "./seed-extras";
 import { ensureStayPackageExamples } from "./seed-stay-packages";
+import { ensureHotelStaffPayrollDemo } from "./seed-hotel-staff";
 import { diningVenues, journalEntries, settings } from "@/db/schema";
 import { addDaysISO, todayISO, genReservationCode, genTrackingCode } from "./utils";
 
@@ -63,6 +64,7 @@ export function ensureSeeded(): Promise<void> {
         await ensureDiningDemo();
         await ensureExtrasDemo();
         await ensureStayPackageExamples();
+        await ensureHotelStaffPayrollDemo();
       })
       .catch((e) => {
       seeding = null;
