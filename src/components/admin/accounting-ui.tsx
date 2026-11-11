@@ -22,6 +22,8 @@ const tabs = [
   { href: "/admin/accounting/profit-loss", label: "سود و زیان" },
   { href: "/admin/accounting/balance-sheet", label: "ترازنامه" },
   { href: "/admin/accounting/receivables-payables", label: "دریافتنی / پرداختنی" },
+  { href: "/admin/accounting/vendor-accounts", label: "حساب فروشندگان" },
+  { href: "/admin/accounting/cost-accounting", label: "هزینه‌یابی" },
   { href: "/admin/accounting/accounts", label: "سرفصل حساب‌ها" },
 ];
 
