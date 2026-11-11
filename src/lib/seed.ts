@@ -45,6 +45,15 @@ export const VIDEO_ROOM = "https://videos.pexels.com/video-files/4101507/4101507
 
 let seeding: Promise<void> | null = null;
 
+export class AdminPasswordSetupRequired extends Error {
+  readonly code = "ADMIN_PASSWORD_REQUIRED";
+
+  constructor() {
+    super("حساب مدیر هنوز از رمز پیش‌فرض admin123 استفاده می‌کند؛ ADMIN_PASSWORD قوی با حداقل ۱۲ نویسه را تنظیم کنید تا هنگام شروع سرور جایگزین شود.");
+    this.name = "AdminPasswordSetupRequired";
+  }
+}
+
 export function ensureSeeded(): Promise<void> {
   if (!seeding) {
     seeding = runSeed()
@@ -71,7 +80,7 @@ async function runSeed() {
       if (legacy.length) {
         const password = process.env.ADMIN_PASSWORD ?? "";
         if (password.length < 12 || password === "admin123") {
-          throw new Error("حساب مدیر هنوز از رمز پیش‌فرض admin123 استفاده می‌کند؛ ADMIN_PASSWORD قوی با حداقل ۱۲ نویسه را تنظیم کنید تا هنگام شروع سرور جایگزین شود.");
+          throw new AdminPasswordSetupRequired();
         }
         await db.transaction(async (tx) => {
           for (const admin of legacy) {

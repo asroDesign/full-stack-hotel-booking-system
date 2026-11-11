@@ -3,7 +3,7 @@ import { db } from "@/db";
 import { settings } from "@/db/schema";
 import { and, eq } from "drizzle-orm";
 import { encryptPaymentCredential, isPrivatePaymentField, readPaymentCredential } from "@/lib/payment-settings";
-import { ensureSeeded } from "./seed";
+import { AdminPasswordSetupRequired, ensureSeeded } from "./seed";
 
 export const defaultSettings = {
   hotelName: "هتل آتالار",
@@ -102,7 +102,19 @@ export async function getSettingsFresh(): Promise<SiteSettings> {
   return loadSettings(false);
 }
 
-export const getSettings = cache(async (): Promise<SiteSettings> => loadSettings(true));
+export const getSettings = cache(async (): Promise<SiteSettings> => {
+  try {
+    return await loadSettings(true);
+  } catch (error) {
+    // Keep public pages available while the production admin account is being secured.
+    // Admin login and panel routes call ensureSeeded directly and remain blocked until rotation.
+    if (process.env.NODE_ENV === "production" && error instanceof AdminPasswordSetupRequired) {
+      console.error("[settings] Public settings loaded without seeding; configure ADMIN_PASSWORD to unlock the admin panel.");
+      return loadSettings(false);
+    }
+    throw error;
+  }
+});
 
 async function loadSettings(seed: boolean): Promise<SiteSettings> {
   if (seed) await ensureSeeded();
